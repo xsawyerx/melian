@@ -63,6 +63,20 @@ In those cases, a general-purpose cache, or a write-through layer, is a better f
 * Gonzalo Diethelm (@Gonzo)
 * Sawyer X (@xsawyerx)
 
+## Building
+
+Melian now uses Autoconf/Automake for configuration. After installing `libevent`, `libmysqlclient`, `libjansson`, and a C11 compiler, do:
+
+```bash
+$ ./bootstrap
+$ ./configure --with-mysql=/path/to/mysql/prefix \   # omit flags when deps are in default paths
+               --with-libevent=/path/to/libevent \
+               --with-jansson=/path/to/jansson
+$ make
+```
+
+The configure step fails explicitly if the MySQL/MariaDB client, libevent, or libjansson headers/libraries cannot be located, ensuring the resulting binaries are always linked against working dependencies.
+
 ## Running
 
 1. Start the server
