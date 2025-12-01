@@ -8,6 +8,7 @@ AM_CPPFLAGS = \
 	-I$(top_srcdir)/clients/c \
 	-I$(top_srcdir)/common \
 	$(MYSQL_CFLAGS) \
+	$(SQLITE_CFLAGS) \
 	$(PLATFORM_CPPFLAGS)
 
 AM_CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -g
@@ -30,6 +31,7 @@ melian_server_SOURCES = \
 melian_server_LDADD = \
 	$(LIBEVENT_LIBS) \
 	$(MYSQL_LIBS) \
+	$(SQLITE_LIBS) \
 	$(PTHREAD_LIBS) \
 	$(LIBM)
 

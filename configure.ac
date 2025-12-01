@@ -90,6 +90,54 @@ AC_CHECK_LIB([event], [event_base_new],
 LDFLAGS="$save_LDFLAGS"
 AC_SUBST([LIBEVENT_LIBS])
 
+# Optional SQLite support (prepare to link when available)
+AC_ARG_WITH([sqlite3],
+  [AS_HELP_STRING([--with-sqlite3=PREFIX],
+    [Prefix where SQLite3 headers and libraries can be found (auto-detect by default)])],
+  [],
+  [with_sqlite3=auto])
+
+have_sqlite3=no
+SQLITE_CFLAGS=""
+SQLITE_LIBS=""
+if test "x$with_sqlite3" != "xno"; then
+  case $with_sqlite3 in
+    auto|yes)
+      SQLITE_CPPFLAGS_CAND=""
+      SQLITE_LDFLAGS_CAND=""
+      ;;
+    *)
+      SQLITE_CPPFLAGS_CAND="-I$with_sqlite3/include"
+      SQLITE_LDFLAGS_CAND="-L$with_sqlite3/lib"
+      ;;
+  esac
+
+  save_CPPFLAGS="$CPPFLAGS"
+  CPPFLAGS="$SQLITE_CPPFLAGS_CAND $CPPFLAGS"
+  AC_CHECK_HEADER([sqlite3.h],
+    [have_sqlite3=yes],
+    [have_sqlite3=no])
+  CPPFLAGS="$save_CPPFLAGS"
+
+  if test "x$have_sqlite3" = "xyes"; then
+    save_LDFLAGS="$LDFLAGS"
+    LDFLAGS="$SQLITE_LDFLAGS_CAND $LDFLAGS"
+    AC_CHECK_LIB([sqlite3], [sqlite3_open],
+      [SQLITE_LIBS="$SQLITE_LDFLAGS_CAND -lsqlite3"],
+      [have_sqlite3=no])
+    LDFLAGS="$save_LDFLAGS"
+  fi
+
+  if test "x$have_sqlite3" = "xyes"; then
+    SQLITE_CFLAGS="$SQLITE_CPPFLAGS_CAND"
+    AC_DEFINE([HAVE_SQLITE3], [1], [Define if SQLite3 support is available])
+  elif test "x$with_sqlite3" = "xyes"; then
+    AC_MSG_ERROR([SQLite3 support requested but sqlite3.h or libsqlite3 not found])
+  fi
+fi
+AC_SUBST([SQLITE_CFLAGS])
+AC_SUBST([SQLITE_LIBS])
+
 # libjansson is mandatory for the client
 AC_ARG_WITH([jansson],
   [AS_HELP_STRING([--with-jansson=PREFIX],

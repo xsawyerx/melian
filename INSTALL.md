@@ -20,7 +20,8 @@ This is a guide for installing Melian.
 # or configure to use either pkg-config or CPPFLAGS/LDFLAGS - see below
 ./configure --with-mysql=/opt/homebrew/opt/mysql-client \
             --with-libevent=/opt/homebrew/opt/libevent \
-            --with-jansson=/opt/homebrew/opt/jansson
+            --with-jansson=/opt/homebrew/opt/jansson \
+            --with-sqlite3=/opt/homebrew/opt/sqlite
 
 # Build the server and client
 make

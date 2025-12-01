@@ -65,18 +65,17 @@ In those cases, a general-purpose cache, or a write-through layer, is a better f
 
 ## Building
 
-Melian uses Autotools for configuration. After installing `libevent`, `libmysqlclient`, `libjansson`, and a C11 compiler, do:
-
 ```bash
 # add flags when deps are in default paths
-$ ./configure --with-mysql=/path/to/mysql/prefix \
+$ ./configure --with-mysql=/path/to/mysql/prefix \ # If you want MySQL/MariaDB support
                --with-libevent=/path/to/libevent \
-               --with-jansson=/path/to/jansson
+               --with-jansson=/path/to/jansson \
+               --with-sqlite3=/path/to/sqlite # if you want SQLite support
 $ make
 $ make install
 ```
 
-The configure step fails explicitly if the MySQL/MariaDB client, libevent, or libjansson headers/libraries cannot be located, ensuring the resulting binaries are always linked against working dependencies.
+The configure step fails explicitly if the MySQL/MariaDB client, libevent, or libjansson headers/libraries cannot be located, ensuring the resulting binaries are always linked against working dependencies. SQLite is detected when available (or via `--with-sqlite3=PREFIX`) so we can start linking against it for future backend work.
 
 ## Running
 
