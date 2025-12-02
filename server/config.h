@@ -5,6 +5,7 @@
 
 typedef enum ConfigDbDriver {
   CONFIG_DB_DRIVER_MYSQL = 0,
+  CONFIG_DB_DRIVER_SQLITE = 1,
 } ConfigDbDriver;
 
 typedef struct ConfigDb {
@@ -64,6 +65,8 @@ typedef struct Config {
   ConfigTable table;
   ConfigServer server;
 } Config;
+
+const char* config_db_driver_name(ConfigDbDriver driver);
 
 Config* config_build(void);
 void config_destroy(Config* config);

@@ -21,37 +21,48 @@ AC_SUBST([PLATFORM_CPPFLAGS])
 
 AC_ARG_WITH([mysql],
   [AS_HELP_STRING([--with-mysql=PREFIX],
-    [Prefix where MySQL/MariaDB client headers and libraries can be found])],
+    [Prefix where MySQL/MariaDB client headers and libraries can be found (auto-detect by default)])],
   [],
-  [with_mysql=yes])
+  [with_mysql=auto])
 
-case $with_mysql in
-  no)
-    AC_MSG_ERROR([MySQL/MariaDB client support is required to build melian])
-    ;;
-  yes|auto)
-    MYSQL_CPPFLAGS=""
-    MYSQL_LDFLAGS=""
-    ;;
-  *)
-    MYSQL_CPPFLAGS="-I$with_mysql/include"
-    MYSQL_LDFLAGS="-L$with_mysql/lib"
-    ;;
-esac
+have_mysql=no
+MYSQL_CFLAGS=""
+MYSQL_LIBS=""
+if test "x$with_mysql" != "xno"; then
+  case $with_mysql in
+    auto|yes)
+      MYSQL_CPPFLAGS_CAND=""
+      MYSQL_LDFLAGS_CAND=""
+      ;;
+    *)
+      MYSQL_CPPFLAGS_CAND="-I$with_mysql/include"
+      MYSQL_LDFLAGS_CAND="-L$with_mysql/lib"
+      ;;
+  esac
 
-save_CPPFLAGS="$CPPFLAGS"
-CPPFLAGS="$MYSQL_CPPFLAGS $CPPFLAGS"
-AC_CHECK_HEADER([mysql/mysql.h], [],
-  [AC_MSG_ERROR([mysql/mysql.h header not found; use --with-mysql=PREFIX])])
-CPPFLAGS="$save_CPPFLAGS"
+  save_CPPFLAGS="$CPPFLAGS"
+  CPPFLAGS="$MYSQL_CPPFLAGS_CAND $CPPFLAGS"
+  AC_CHECK_HEADER([mysql/mysql.h],
+    [have_mysql=yes],
+    [have_mysql=no])
+  CPPFLAGS="$save_CPPFLAGS"
 
-save_LDFLAGS="$LDFLAGS"
-LDFLAGS="$MYSQL_LDFLAGS $LDFLAGS"
-AC_CHECK_LIB([mysqlclient], [mysql_init],
-  [MYSQL_LIBS="$MYSQL_LDFLAGS -lmysqlclient"],
-  [AC_MSG_ERROR([libmysqlclient not found; use --with-mysql=PREFIX])])
-LDFLAGS="$save_LDFLAGS"
-MYSQL_CFLAGS="$MYSQL_CPPFLAGS"
+  if test "x$have_mysql" = "xyes"; then
+    save_LDFLAGS="$LDFLAGS"
+    LDFLAGS="$MYSQL_LDFLAGS_CAND $LDFLAGS"
+    AC_CHECK_LIB([mysqlclient], [mysql_init],
+      [MYSQL_LIBS="$MYSQL_LDFLAGS_CAND -lmysqlclient"],
+      [have_mysql=no])
+    LDFLAGS="$save_LDFLAGS"
+  fi
+
+  if test "x$have_mysql" = "xyes"; then
+    MYSQL_CFLAGS="$MYSQL_CPPFLAGS_CAND"
+    AC_DEFINE([HAVE_MYSQL], [1], [Define if MySQL client support is available])
+  elif test "x$with_mysql" = "xyes"; then
+    AC_MSG_ERROR([MySQL support requested but mysql/mysql.h or libmysqlclient not found])
+  fi
+fi
 AC_SUBST([MYSQL_CFLAGS])
 AC_SUBST([MYSQL_LIBS])
 
@@ -137,6 +148,22 @@ if test "x$with_sqlite3" != "xno"; then
 fi
 AC_SUBST([SQLITE_CFLAGS])
 AC_SUBST([SQLITE_LIBS])
+
+if test "x$have_mysql" != "xyes" && test "x$have_sqlite3" != "xyes"; then
+  AC_MSG_ERROR([No supported database drivers found. Install MySQL client and/or SQLite3, or use --with-mysql/--with-sqlite3 to point to their prefixes.])
+fi
+
+default_db_driver="none"
+AS_IF([test "x$have_mysql" = "xyes"], [default_db_driver="mysql"])
+AS_IF([test "x$have_sqlite3" = "xyes" && test "x$default_db_driver" = "xnone"],
+      [default_db_driver="sqlite"])
+
+AC_MSG_NOTICE([])
+AC_MSG_NOTICE([Database backend configuration:])
+AC_MSG_NOTICE([  MySQL : $have_mysql])
+AC_MSG_NOTICE([  SQLite: $have_sqlite3])
+AC_MSG_NOTICE([  Default driver: $default_db_driver])
+AC_MSG_NOTICE([])
 
 # libjansson is mandatory for the client
 AC_ARG_WITH([jansson],

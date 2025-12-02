@@ -10,7 +10,9 @@ If you're updating `configure.ac`, regenerate `configure` with:
 ./bootstrap
 ```
 
-## Defining Your Own Tables
+## Defining Your Own Tables - MySQL
+
+(See below for SQLite.)
 
 Tables are declared in `MELIAN_TABLE_TABLES`, using a comma-separated list with optional per-table reload periods:
 
@@ -98,6 +100,19 @@ Now you can try it out.
 ```bash
 ./melian-client -u /tmp/melian.sock -s
 U: 3600 reqs, 3600 good, 0 bad, 120 ms → 30000 req/s, 38.5 ± 2.1 μs/req
+```
+
+## Defining Your Own Tables - SQLite
+
+SQLite doesn't support the syntax needed to randomly generate the table rows. The shortcut we recommend is creating the tables in MySQL and then importing it into SQLite using [mysql2sqlite](https://github.com/mysql2sqlite/mysql2sqlite) `awk` script:
+
+```
+# Generate the tables in MySQL as mentioned above
+# ...
+
+# Export
+mysql -u$USER -p$PASS_IF_ANY $MELIAN_DB > melian.sql
+./mysql2sqlite melian.sql | sqlite3 melian.db
 ```
 
 ## Comparing with Redis

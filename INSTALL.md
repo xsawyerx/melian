@@ -8,8 +8,9 @@ This is a guide for installing Melian.
 
 * GCC / Clang (C99 or newer)
 * `libevent` ≥ 2.1
-* `libmysqlclient`
+* `libmysqlclient` (optional, for MySQL/MariaDB support)
 * `libjansson` (for client JSON parsing)
+* `sqlite3` (optional, for SQLite support)
 * `xxhash`
 * POSIX environment (Linux or macOS)
 

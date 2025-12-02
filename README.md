@@ -77,6 +77,8 @@ $ make install
 
 The configure step fails explicitly if the MySQL/MariaDB client, libevent, or libjansson headers/libraries cannot be located, ensuring the resulting binaries are always linked against working dependencies. SQLite is detected when available (or via `--with-sqlite3=PREFIX`) so we can start linking against it for future backend work.
 
+At least one database driver (MySQL or SQLite) must be available; configure stops early if neither can be found.
+
 ## Running
 
 1. Start the server
@@ -92,13 +94,15 @@ $ MELIAN_SOCKET_HOST=localhost MELIAN_SOCKET_PORT=9999 ./melian-server
 $ ./melian-server --help
 ```
 
-By default, it connects to MySQL/MariaDB on `127.0.0.1:3306` using these environment variables:
+By default, it uses the MySQL/MariaDB driver on `127.0.0.1:3306`. You can switch drivers and adjust settings via these environment variables:
 
+* `MELIAN_DB_DRIVER`: `mysql` (default) or `sqlite`
 * `MELIAN_MYSQL_HOST`: `127.0.0.1`
 * `MELIAN_MYSQL_PORT`: `3306`
 * `MELIAN_MYSQL_DATABASE`: `mydb`
 * `MELIAN_MYSQL_USER`: `root`
 * `MELIAN_MYSQL_PASSWORD`: `root`
+* `MELIAN_SQLITE_FILENAME`: `/etc/melian.db` (used when `MELIAN_DB_DRIVER=sqlite`)
 * `MELIAN_SOCKET_PATH`: `/tmp/melian.sock`
 * `MELIAN_TABLE_TABLES`: `table1,table2`
 * `MELIAN_TABLE_PERIOD`: `60` seconds (reload interval)
