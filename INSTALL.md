@@ -16,10 +16,8 @@ This is a guide for installing Melian.
 ### Configure & Build
 
 ```bash
-# Generate the configure script (only once, or whenever autotools files change)
-./bootstrap
-
 # Configure; pass --with-* flags if headers/libs are installed outside default paths
+# or configure to use either pkg-config or CPPFLAGS/LDFLAGS - see below
 ./configure --with-mysql=/opt/homebrew/opt/mysql-client \
             --with-libevent=/opt/homebrew/opt/libevent \
             --with-jansson=/opt/homebrew/opt/jansson
@@ -31,4 +29,10 @@ make
 make install
 ```
 
-If `configure` cannot locate the MySQL/MariaDB client, libevent, or libjansson headers or libraries it exits with a clear error; install the client libraries or point the `--with-*` flags at their prefix paths.
+If you're using Homebrew, considering adding the following to your shell rc file:
+
+```bash
+export PKG_CONFIG_PATH=/opt/homebrew/lib/pkgconfig:/opt/homebrew/share/pkgconfig
+export CPPFLAGS="-I/opt/homebrew/include"
+export LDFLAGS="-L/opt/homebrew/lib"
+```

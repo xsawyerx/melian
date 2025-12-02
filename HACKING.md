@@ -2,6 +2,14 @@
 
 Melian has a few secret options used for functionality testing, benchmarks, and performance testing. You can create suitable tables to have those functions working.
 
+## Updating autotools
+
+If you're updating `configure.ac`, regenerate `configure` with:
+
+```bash
+./bootstrap
+```
+
 ## Defining Your Own Tables
 
 Tables are declared in `MELIAN_TABLE_TABLES`, using a comma-separated list with optional per-table reload periods:
