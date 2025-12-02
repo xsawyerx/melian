@@ -8,8 +8,9 @@ This is a guide for installing Melian.
 
 * GCC / Clang (C99 or newer)
 * `libevent` ≥ 2.1
-* `libmysqlclient`
+* `libmysqlclient` (optional, for MySQL/MariaDB support)
 * `libjansson` (for client JSON parsing)
+* `sqlite3` (optional, for SQLite support)
 * `xxhash`
 * POSIX environment (Linux or macOS)
 
@@ -20,7 +21,8 @@ This is a guide for installing Melian.
 # or configure to use either pkg-config or CPPFLAGS/LDFLAGS - see below
 ./configure --with-mysql=/opt/homebrew/opt/mysql-client \
             --with-libevent=/opt/homebrew/opt/libevent \
-            --with-jansson=/opt/homebrew/opt/jansson
+            --with-jansson=/opt/homebrew/opt/jansson \
+            --with-sqlite3=/opt/homebrew/opt/sqlite
 
 # Build the server and client
 make

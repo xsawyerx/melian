@@ -59,13 +59,14 @@ void status_log(Status* status) {
   LOG_INFO("Using libevent version %s with method %s",
            status->libevent.version, status->libevent.method);
 
+  const char* driver_name = config_db_driver_name(status->db->config->db.driver);
   const char* c = status->db->client_version;
   if (c && c[0]) {
-    LOG_INFO("Using mysql client version %s", c);
+    LOG_INFO("Using %s client version %s", driver_name, c);
   }
   const char* s = status->db->server_version;
   if (s && s[0]) {
-    LOG_INFO("Using mysql server version %s", s);
+    LOG_INFO("Using %s server version %s", driver_name, s);
   }
 
   char birth[MAX_STAMP_LEN];
@@ -78,6 +79,7 @@ void status_json(Status* status, Config* config, Data* data) {
   char* p = status->json.jbuf;
   unsigned c = sizeof(status->json.jbuf);
   unsigned l = 0;
+  const char* driver_key = config_db_driver_name(config->db.driver);
   do {
     unsigned N = 0;
     l = json_obj_beg(N++, 0, p, c, l);
@@ -104,7 +106,7 @@ void status_json(Status* status, Config* config, Data* data) {
         }
         l = json_obj_end(p, c, l);
 
-        l = json_obj_beg(N++, "mysql", p, c, l);
+        l = json_obj_beg(N++, driver_key, p, c, l);
         {
           unsigned N = 0;
           l = json_obj_beg(N++, "client", p, c, l);
@@ -129,13 +131,19 @@ void status_json(Status* status, Config* config, Data* data) {
       {
         unsigned N = 0;
 
-        l = json_obj_beg(N++, "mysql", p, c, l);
+        l = json_obj_beg(N++, driver_key, p, c, l);
         {
           unsigned N = 0;
-          l = json_string(N++, "host", config->db.host, p, c, l);
-          l = json_integer(N++, "port", config->db.port, p, c, l);
-          l = json_string(N++, "database", config->db.database, p, c, l);
-          l = json_string(N++, "user", config->db.user, p, c, l);
+          if (config->db.driver == CONFIG_DB_DRIVER_MYSQL) {
+            l = json_string(N++, "host", config->db.host, p, c, l);
+            l = json_integer(N++, "port", config->db.port, p, c, l);
+            l = json_string(N++, "database", config->db.database, p, c, l);
+            l = json_string(N++, "user", config->db.user, p, c, l);
+          } else if (config->db.driver == CONFIG_DB_DRIVER_SQLITE) {
+            l = json_string(N++, "filename",
+                            config->db.sqlite_filename ? config->db.sqlite_filename : "",
+                            p, c, l);
+          }
         }
         l = json_obj_end(p, c, l);
 
