@@ -3,13 +3,12 @@
 #include <stdint.h>
 
 // These have to be all strings.
-#define MELIAN_DEFAULT_DB_DRIVER        "mysql"
-#define MELIAN_DEFAULT_MYSQL_HOST       "127.0.0.1"
-#define MELIAN_DEFAULT_MYSQL_PORT       "3306"
-#define MELIAN_DEFAULT_MYSQL_DATABASE   "mydb"
-#define MELIAN_DEFAULT_MYSQL_USER       "root"
-#define MELIAN_DEFAULT_MYSQL_PASSWORD   "root"
-#define MELIAN_DEFAULT_SQLITE_FILENAME  "/etc/melian.db"
+#define MELIAN_DEFAULT_DB_HOST          "127.0.0.1"
+#define MELIAN_DEFAULT_DB_PORT          "3306"
+#define MELIAN_DEFAULT_DB_NAME          "melian"
+#define MELIAN_DEFAULT_DB_USER          "melian"
+#define MELIAN_DEFAULT_DB_PASSWORD      "meliansecret"
+#define MELIAN_DEFAULT_SQLITE_FILENAME  "/tmp/melian.db"
 #define MELIAN_DEFAULT_SOCKET_HOST      "127.0.0.1"
 #define MELIAN_DEFAULT_SOCKET_PORT      "0"
 #define MELIAN_DEFAULT_SOCKET_PATH      "/tmp/melian.sock"

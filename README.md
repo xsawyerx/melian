@@ -66,18 +66,17 @@ In those cases, a general-purpose cache, or a write-through layer, is a better f
 ## Building
 
 ```bash
-# add flags when deps are in default paths
-$ ./configure --with-mysql=/path/to/mysql/prefix \ # If you want MySQL/MariaDB support
+# add flags when deps are not in the default paths
+$ ./configure --with-mysql=/path/to/mysql \        # enable MySQL/MariaDB support
+               --with-postgresql=/path/to/pgsql \  # enable PostgreSQL support
+               --with-sqlite3=/path/to/sqlite \    # enable SQLite support
                --with-libevent=/path/to/libevent \
-               --with-jansson=/path/to/jansson \
-               --with-sqlite3=/path/to/sqlite # if you want SQLite support
+               --with-jansson=/path/to/jansson
 $ make
 $ make install
 ```
 
-The configure step fails explicitly if the MySQL/MariaDB client, libevent, or libjansson headers/libraries cannot be located, ensuring the resulting binaries are always linked against working dependencies. SQLite is detected when available (or via `--with-sqlite3=PREFIX`) so we can start linking against it for future backend work.
-
-At least one database driver (MySQL or SQLite) must be available; configure stops early if neither can be found.
+The configure step fails explicitly if the required headers/libraries cannot be located. At least one database backend (MySQL, PostgreSQL, or SQLite) must be available; configure stops early otherwise. Pass whichever `--with-*` flags match the drivers you intend to compile in.
 
 ## Running
 
@@ -94,15 +93,15 @@ $ MELIAN_SOCKET_HOST=localhost MELIAN_SOCKET_PORT=9999 ./melian-server
 $ ./melian-server --help
 ```
 
-By default, it uses the MySQL/MariaDB driver on `127.0.0.1:3306`. You can switch drivers and adjust settings via these environment variables:
+Set the database driver explicitly and adjust shared settings via these environment variables:
 
-* `MELIAN_DB_DRIVER`: `mysql` (default) or `sqlite`
-* `MELIAN_MYSQL_HOST`: `127.0.0.1`
-* `MELIAN_MYSQL_PORT`: `3306`
-* `MELIAN_MYSQL_DATABASE`: `mydb`
-* `MELIAN_MYSQL_USER`: `root`
-* `MELIAN_MYSQL_PASSWORD`: `root`
-* `MELIAN_SQLITE_FILENAME`: `/etc/melian.db` (used when `MELIAN_DB_DRIVER=sqlite`)
+* `MELIAN_DB_DRIVER`: `mysql`, `postgresql`, or `sqlite` (required)
+* `MELIAN_DB_HOST`: database host (default `127.0.0.1`)
+* `MELIAN_DB_PORT`: database port (default `3306`)
+* `MELIAN_DB_NAME`: database/schema name (default `melian`)
+* `MELIAN_DB_USER`: username (default `melian`)
+* `MELIAN_DB_PASSWORD`: password (default `meliansecret`)
+* `MELIAN_SQLITE_FILENAME`: SQLite database filename (default `/etc/melian.db`)
 * `MELIAN_SOCKET_PATH`: `/tmp/melian.sock`
 * `MELIAN_TABLE_TABLES`: `table1,table2`
 * `MELIAN_TABLE_PERIOD`: `60` seconds (reload interval)
