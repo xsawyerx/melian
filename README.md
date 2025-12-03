@@ -102,9 +102,12 @@ Set the database driver explicitly and adjust shared settings via these environm
 * `MELIAN_DB_USER`: username (default `melian`)
 * `MELIAN_DB_PASSWORD`: password (default `meliansecret`)
 * `MELIAN_SQLITE_FILENAME`: SQLite database filename (default `/etc/melian.db`)
+* `MELIAN_TABLE_SELECTS`: semicolon-separated overrides (`table=SELECT ...;table2=SELECT ...`) to customize per-table SELECT statements
 * `MELIAN_SOCKET_PATH`: `/tmp/melian.sock`
 * `MELIAN_TABLE_TABLES`: `table1,table2`
 * `MELIAN_TABLE_PERIOD`: `60` seconds (reload interval)
+
+When using `MELIAN_TABLE_SELECTS`, ensure each entry follows `table_name=SELECT ...` and separate multiple entries with `;`. The SQL is used verbatim, so double-check statements for the intended tables.
 
 2. Use the test client
 
