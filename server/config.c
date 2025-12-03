@@ -14,8 +14,6 @@ static char* trim(char* s);
 static unsigned parse_table_specs(Config* config, const char* raw);
 static ConfigIndexType parse_index_type(const char* value);
 static ConfigDbDriver parse_db_driver(const char* value);
-static const char* get_db_env_string(const char* primary, const char* legacy, const char* def);
-static int get_db_env_number(const char* primary, const char* legacy, const char* def);
 static void apply_select_overrides(Config* config);
 static ConfigTableSpec* find_table_spec(Config* config, const char* name);
 
@@ -45,11 +43,11 @@ Config* config_build(void) {
 #endif
     config->db.driver = driver;
     LOG_INFO("Database driver selected: %s", config_db_driver_name(config->db.driver));
-    config->db.host = get_db_env_string("MELIAN_DB_HOST", "MELIAN_MYSQL_HOST", MELIAN_DEFAULT_DB_HOST);
-    config->db.port = get_db_env_number("MELIAN_DB_PORT", "MELIAN_MYSQL_PORT", MELIAN_DEFAULT_DB_PORT);
-    config->db.database = get_db_env_string("MELIAN_DB_NAME", "MELIAN_MYSQL_DATABASE", MELIAN_DEFAULT_DB_NAME);
-    config->db.user = get_db_env_string("MELIAN_DB_USER", "MELIAN_MYSQL_USER", MELIAN_DEFAULT_DB_USER);
-    config->db.password = get_db_env_string("MELIAN_DB_PASSWORD", "MELIAN_MYSQL_PASSWORD", MELIAN_DEFAULT_DB_PASSWORD);
+    config->db.host = get_config_string("MELIAN_DB_HOST", MELIAN_DEFAULT_DB_HOST);
+    config->db.port = get_config_number("MELIAN_DB_PORT", MELIAN_DEFAULT_DB_PORT);
+    config->db.database = get_config_string("MELIAN_DB_NAME", MELIAN_DEFAULT_DB_NAME);
+    config->db.user = get_config_string("MELIAN_DB_USER", MELIAN_DEFAULT_DB_USER);
+    config->db.password = get_config_string("MELIAN_DB_PASSWORD", MELIAN_DEFAULT_DB_PASSWORD);
     config->db.sqlite_filename = get_config_string("MELIAN_SQLITE_FILENAME", MELIAN_DEFAULT_SQLITE_FILENAME);
 
     config->socket.host = get_config_string("MELIAN_SOCKET_HOST", MELIAN_DEFAULT_SOCKET_HOST);
@@ -129,21 +127,6 @@ static unsigned get_config_bool(const char* name, const char* def) {
     if (strcmp(value, positive[p]) == 0) return 1;
   }
   return 0;
-}
-
-static const char* get_db_env_string(const char* primary, const char* legacy, const char* def) {
-  const char* value = getenv(primary);
-  if (value && value[0]) return value;
-  if (legacy && legacy[0]) {
-    value = getenv(legacy);
-    if (value && value[0]) return value;
-  }
-  return def;
-}
-
-static int get_db_env_number(const char* primary, const char* legacy, const char* def) {
-  const char* value = get_db_env_string(primary, legacy, def);
-  return atoi(value);
 }
 
 static unsigned parse_table_specs(Config* config, const char* raw) {
