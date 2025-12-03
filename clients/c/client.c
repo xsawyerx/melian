@@ -52,7 +52,7 @@ static int resolve_fetch_binding(struct FetchBinding* binding, json_t* tables);
 Client* client_build(void) {
   Client* client = calloc(1, sizeof(Client));
 
-  client->options.host = MELIAN_DEFAULT_MYSQL_HOST;
+  client->options.host = MELIAN_DEFAULT_DB_HOST;
   client->options.unix = MELIAN_DEFAULT_SOCKET_PATH;
 
   return client;

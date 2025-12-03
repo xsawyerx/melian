@@ -14,7 +14,8 @@ static char* trim(char* s);
 static unsigned parse_table_specs(Config* config, const char* raw);
 static ConfigIndexType parse_index_type(const char* value);
 static ConfigDbDriver parse_db_driver(const char* value);
-static const char* default_driver_name(void);
+static const char* get_db_env_string(const char* primary, const char* legacy, const char* def);
+static int get_db_env_number(const char* primary, const char* legacy, const char* def);
 
 Config* config_build(void) {
   Config* config = 0;
@@ -26,7 +27,10 @@ Config* config_build(void) {
     }
 
     const char* driver_raw = getenv("MELIAN_DB_DRIVER");
-    ConfigDbDriver driver = parse_db_driver(driver_raw ? driver_raw : default_driver_name());
+    if (!driver_raw || !driver_raw[0]) {
+      LOG_FATAL("MELIAN_DB_DRIVER must be set to mysql, sqlite, or postgresql");
+    }
+    ConfigDbDriver driver = parse_db_driver(driver_raw);
 #if !defined(HAVE_MYSQL)
     if (driver == CONFIG_DB_DRIVER_MYSQL) {
       LOG_FATAL("MySQL driver requested but not available in this build");
@@ -39,11 +43,11 @@ Config* config_build(void) {
 #endif
     config->db.driver = driver;
     LOG_INFO("Database driver selected: %s", config_db_driver_name(config->db.driver));
-    config->db.host = get_config_string("MELIAN_MYSQL_HOST", MELIAN_DEFAULT_MYSQL_HOST);
-    config->db.port = get_config_number("MELIAN_MYSQL_PORT", MELIAN_DEFAULT_MYSQL_PORT);
-    config->db.database = get_config_string("MELIAN_MYSQL_DATABASE", MELIAN_DEFAULT_MYSQL_DATABASE);
-    config->db.user = get_config_string("MELIAN_MYSQL_USER", MELIAN_DEFAULT_MYSQL_USER);
-    config->db.password = get_config_string("MELIAN_MYSQL_PASSWORD", MELIAN_DEFAULT_MYSQL_PASSWORD);
+    config->db.host = get_db_env_string("MELIAN_DB_HOST", "MELIAN_MYSQL_HOST", MELIAN_DEFAULT_DB_HOST);
+    config->db.port = get_db_env_number("MELIAN_DB_PORT", "MELIAN_MYSQL_PORT", MELIAN_DEFAULT_DB_PORT);
+    config->db.database = get_db_env_string("MELIAN_DB_NAME", "MELIAN_MYSQL_DATABASE", MELIAN_DEFAULT_DB_NAME);
+    config->db.user = get_db_env_string("MELIAN_DB_USER", "MELIAN_MYSQL_USER", MELIAN_DEFAULT_DB_USER);
+    config->db.password = get_db_env_string("MELIAN_DB_PASSWORD", "MELIAN_MYSQL_PASSWORD", MELIAN_DEFAULT_DB_PASSWORD);
     config->db.sqlite_filename = get_config_string("MELIAN_SQLITE_FILENAME", MELIAN_DEFAULT_SQLITE_FILENAME);
 
     config->socket.host = get_config_string("MELIAN_SOCKET_HOST", MELIAN_DEFAULT_SOCKET_HOST);
@@ -67,12 +71,12 @@ Config* config_build(void) {
 void config_show_usage(void) {
 	printf("\n");
 	printf("Behavior can be controlled using the following environment variables:\n");
-	printf("  MELIAN_DB_DRIVER       : database driver to use (mysql, sqlite) (default: %s)\n", default_driver_name());
-	printf("  MELIAN_MYSQL_HOST      : MySQL database host name (default: %s)\n", MELIAN_DEFAULT_MYSQL_HOST);
-	printf("  MELIAN_MYSQL_PORT      : MySQL database listening port (default: %s)\n", MELIAN_DEFAULT_MYSQL_PORT);
-	printf("  MELIAN_MYSQL_DATABASE  : MySQL database name (default: %s)\n", MELIAN_DEFAULT_MYSQL_DATABASE);
-	printf("  MELIAN_MYSQL_USER      : MySQL database user name (default: %s)\n", MELIAN_DEFAULT_MYSQL_USER);
-	printf("  MELIAN_MYSQL_PASSWORD  : MySQL database user password (default: %s)\n", MELIAN_DEFAULT_MYSQL_PASSWORD);
+	printf("  MELIAN_DB_DRIVER       : database driver to use (mysql, sqlite, postgresql) [required]\n");
+	printf("  MELIAN_DB_HOST         : database host name (default: %s)\n", MELIAN_DEFAULT_DB_HOST);
+	printf("  MELIAN_DB_PORT         : database listening port (default: %s)\n", MELIAN_DEFAULT_DB_PORT);
+	printf("  MELIAN_DB_NAME         : database/schema name (default: %s)\n", MELIAN_DEFAULT_DB_NAME);
+	printf("  MELIAN_DB_USER         : database user name (default: %s)\n", MELIAN_DEFAULT_DB_USER);
+	printf("  MELIAN_DB_PASSWORD     : database user password (default: %s)\n", MELIAN_DEFAULT_DB_PASSWORD);
 	printf("  MELIAN_SQLITE_FILENAME : SQLite database filename (default: %s)\n", MELIAN_DEFAULT_SQLITE_FILENAME);
 	printf("  MELIAN_SOCKET_HOST     : host name where server will listen for TCP connections (default: %s)\n", MELIAN_DEFAULT_SOCKET_HOST);
 	printf("  MELIAN_SOCKET_PORT     : port where server will listen for TCP connections -- 0 to disable (default: %s)\n", MELIAN_DEFAULT_SOCKET_PORT);
@@ -121,6 +125,21 @@ static unsigned get_config_bool(const char* name, const char* def) {
     if (strcmp(value, positive[p]) == 0) return 1;
   }
   return 0;
+}
+
+static const char* get_db_env_string(const char* primary, const char* legacy, const char* def) {
+  const char* value = getenv(primary);
+  if (value && value[0]) return value;
+  if (legacy && legacy[0]) {
+    value = getenv(legacy);
+    if (value && value[0]) return value;
+  }
+  return def;
+}
+
+static int get_db_env_number(const char* primary, const char* legacy, const char* def) {
+  const char* value = get_db_env_string(primary, legacy, def);
+  return atoi(value);
 }
 
 static unsigned parse_table_specs(Config* config, const char* raw) {
@@ -282,6 +301,7 @@ static ConfigDbDriver parse_db_driver(const char* value) {
     }
     if (strcmp(cleaned, "mysql") == 0) return CONFIG_DB_DRIVER_MYSQL;
     if (strcmp(cleaned, "sqlite") == 0) return CONFIG_DB_DRIVER_SQLITE;
+    if (strcmp(cleaned, "postgresql") == 0) return CONFIG_DB_DRIVER_POSTGRESQL;
     LOG_WARN("Unknown database driver %s, defaulting to mysql", cleaned);
   }
   return CONFIG_DB_DRIVER_MYSQL;
@@ -291,16 +311,7 @@ const char* config_db_driver_name(ConfigDbDriver driver) {
   switch (driver) {
     case CONFIG_DB_DRIVER_MYSQL: return "mysql";
     case CONFIG_DB_DRIVER_SQLITE: return "sqlite";
+    case CONFIG_DB_DRIVER_POSTGRESQL: return "postgresql";
     default: return "unknown";
   }
-}
-
-static const char* default_driver_name(void) {
-#if defined(HAVE_MYSQL)
-  return "mysql";
-#elif defined(HAVE_SQLITE3)
-  return "sqlite";
-#else
-  return "none";
-#endif
 }

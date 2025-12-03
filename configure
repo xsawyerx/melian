@@ -648,6 +648,8 @@ LIBOBJS
 LIBM
 PTHREAD_LIBS
 JANSSON_LIBS
+POSTGRESQL_LIBS
+POSTGRESQL_CFLAGS
 SQLITE_LIBS
 SQLITE_CFLAGS
 LIBEVENT_LIBS
@@ -758,6 +760,7 @@ enable_dependency_tracking
 with_mysql
 with_libevent
 with_sqlite3
+with_postgresql
 with_jansson
 '
       ac_precious_vars='build_alias
@@ -1411,6 +1414,9 @@ Optional Packages:
                           found
   --with-sqlite3=PREFIX   Prefix where SQLite3 headers and libraries can be
                           found (auto-detect by default)
+  --with-postgresql=PREFIX
+                          Prefix where PostgreSQL/libpq headers and libraries
+                          can be found (auto-detect by default)
   --with-jansson=PREFIX   Prefix where libjansson headers and libraries can be
                           found
 
@@ -5999,18 +6005,116 @@ fi
 
 
 
-if test "x$have_mysql" != "xyes" && test "x$have_sqlite3" != "xyes"; then
-  as_fn_error $? "No supported database drivers found. Install MySQL client and/or SQLite3, or use --with-mysql/--with-sqlite3 to point to their prefixes." "$LINENO" 5
+
+# Check whether --with-postgresql was given.
+if test ${with_postgresql+y}
+then :
+  withval=$with_postgresql;
+else case e in #(
+  e) with_postgresql=auto ;;
+esac
 fi
 
-default_db_driver="none"
-if test "x$have_mysql" = "xyes"
+
+have_postgresql=no
+POSTGRESQL_CFLAGS=""
+POSTGRESQL_LIBS=""
+if test "x$with_postgresql" != "xno"; then
+  case $with_postgresql in
+    auto|yes)
+      POSTGRESQL_CPPFLAGS_CAND=""
+      POSTGRESQL_LDFLAGS_CAND=""
+      ;;
+    *)
+      POSTGRESQL_CPPFLAGS_CAND="-I$with_postgresql/include"
+      POSTGRESQL_LDFLAGS_CAND="-L$with_postgresql/lib"
+      ;;
+  esac
+
+  save_CPPFLAGS="$CPPFLAGS"
+  CPPFLAGS="$POSTGRESQL_CPPFLAGS_CAND $CPPFLAGS"
+  ac_fn_c_check_header_compile "$LINENO" "libpq-fe.h" "ac_cv_header_libpq_fe_h" "$ac_includes_default"
+if test "x$ac_cv_header_libpq_fe_h" = xyes
 then :
-  default_db_driver="mysql"
+  have_postgresql=yes
+else case e in #(
+  e) have_postgresql=no ;;
+esac
 fi
-if test "x$have_sqlite3" = "xyes" && test "x$default_db_driver" = "xnone"
+
+  CPPFLAGS="$save_CPPFLAGS"
+
+  if test "x$have_postgresql" = "xyes"; then
+    save_LDFLAGS="$LDFLAGS"
+    LDFLAGS="$POSTGRESQL_LDFLAGS_CAND $LDFLAGS"
+    { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for PQconnectdb in -lpq" >&5
+printf %s "checking for PQconnectdb in -lpq... " >&6; }
+if test ${ac_cv_lib_pq_PQconnectdb+y}
 then :
-  default_db_driver="sqlite"
+  printf %s "(cached) " >&6
+else case e in #(
+  e) ac_check_lib_save_LIBS=$LIBS
+LIBS="-lpq  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.
+   The 'extern "C"' is for builds by C++ compilers;
+   although this is not generally supported in C code supporting it here
+   has little cost and some practical benefit (sr 110532).  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char PQconnectdb (void);
+int
+main (void)
+{
+return PQconnectdb ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"
+then :
+  ac_cv_lib_pq_PQconnectdb=yes
+else case e in #(
+  e) ac_cv_lib_pq_PQconnectdb=no ;;
+esac
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS ;;
+esac
+fi
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_pq_PQconnectdb" >&5
+printf "%s\n" "$ac_cv_lib_pq_PQconnectdb" >&6; }
+if test "x$ac_cv_lib_pq_PQconnectdb" = xyes
+then :
+  POSTGRESQL_LIBS="$POSTGRESQL_LDFLAGS_CAND -lpq"
+else case e in #(
+  e) have_postgresql=no ;;
+esac
+fi
+
+    LDFLAGS="$save_LDFLAGS"
+  fi
+
+  if test "x$have_postgresql" = "xyes"; then
+    POSTGRESQL_CFLAGS="$POSTGRESQL_CPPFLAGS_CAND"
+
+printf "%s\n" "#define HAVE_POSTGRESQL 1" >>confdefs.h
+
+  elif test "x$with_postgresql" = "xyes"; then
+    as_fn_error $? "PostgreSQL support requested but libpq-fe.h or libpq not found" "$LINENO" 5
+  fi
+fi
+
+
+
+if test "x$have_mysql" != "xyes" && test "x$have_sqlite3" != "xyes" && test "x$have_postgresql" != "xyes"; then
+  as_fn_error $? "No supported database drivers found. Install MySQL client, SQLite3, and/or PostgreSQL, or use --with-<driver>=PREFIX to point to their prefixes." "$LINENO" 5
 fi
 
 { printf "%s\n" "$as_me:${as_lineno-$LINENO}: " >&5
@@ -6021,8 +6125,10 @@ printf "%s\n" "$as_me: Database backend configuration:" >&6;}
 printf "%s\n" "$as_me:   MySQL : $have_mysql" >&6;}
 { printf "%s\n" "$as_me:${as_lineno-$LINENO}:   SQLite: $have_sqlite3" >&5
 printf "%s\n" "$as_me:   SQLite: $have_sqlite3" >&6;}
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}:   Default driver: $default_db_driver" >&5
-printf "%s\n" "$as_me:   Default driver: $default_db_driver" >&6;}
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}:   PostgreSQL: $have_postgresql" >&5
+printf "%s\n" "$as_me:   PostgreSQL: $have_postgresql" >&6;}
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}:   Runtime selection: set MELIAN_DB_DRIVER to mysql, sqlite, or postgresql" >&5
+printf "%s\n" "$as_me:   Runtime selection: set MELIAN_DB_DRIVER to mysql, sqlite, or postgresql" >&6;}
 { printf "%s\n" "$as_me:${as_lineno-$LINENO}: " >&5
 printf "%s\n" "$as_me: " >&6;}
 

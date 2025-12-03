@@ -20,6 +20,10 @@ struct MYSQL;
 #ifdef HAVE_SQLITE3
 typedef struct sqlite3 sqlite3;
 #endif
+#ifdef HAVE_POSTGRESQL
+struct pg_conn;
+typedef struct pg_conn PGconn;
+#endif
 
 typedef struct DB {
   Config *config;
@@ -29,6 +33,9 @@ typedef struct DB {
 #endif
 #ifdef HAVE_SQLITE3
   sqlite3 *sqlite;
+#endif
+#ifdef HAVE_POSTGRESQL
+  PGconn *postgres;
 #endif
   char client_version[MAX_VERSION_LEN];
   char server_version[MAX_VERSION_LEN];

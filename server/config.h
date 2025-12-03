@@ -6,6 +6,7 @@
 typedef enum ConfigDbDriver {
   CONFIG_DB_DRIVER_MYSQL = 0,
   CONFIG_DB_DRIVER_SQLITE = 1,
+  CONFIG_DB_DRIVER_POSTGRESQL = 2,
 } ConfigDbDriver;
 
 typedef struct ConfigDb {
