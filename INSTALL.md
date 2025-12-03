@@ -9,6 +9,7 @@ This is a guide for installing Melian.
 * GCC / Clang (C99 or newer)
 * `libevent` ≥ 2.1
 * `libmysqlclient` (optional, for MySQL/MariaDB support)
+* `libpq` (optional, for PostgreSQL support)
 * `libjansson` (for client JSON parsing)
 * `sqlite3` (optional, for SQLite support)
 * `xxhash`
@@ -20,9 +21,10 @@ This is a guide for installing Melian.
 # Configure; pass --with-* flags if headers/libs are installed outside default paths
 # or configure to use either pkg-config or CPPFLAGS/LDFLAGS - see below
 ./configure --with-mysql=/opt/homebrew/opt/mysql-client \
+            --with-postgresql=/opt/homebrew/opt/libpq \
+            --with-sqlite3=/opt/homebrew/opt/sqlite \
             --with-libevent=/opt/homebrew/opt/libevent \
-            --with-jansson=/opt/homebrew/opt/jansson \
-            --with-sqlite3=/opt/homebrew/opt/sqlite
+            --with-jansson=/opt/homebrew/opt/jansson
 
 # Build the server and client
 make

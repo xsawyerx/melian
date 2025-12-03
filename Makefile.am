@@ -9,6 +9,7 @@ AM_CPPFLAGS = \
 	-I$(top_srcdir)/common \
 	$(MYSQL_CFLAGS) \
 	$(SQLITE_CFLAGS) \
+	$(POSTGRESQL_CFLAGS) \
 	$(PLATFORM_CPPFLAGS)
 
 AM_CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -g
@@ -32,6 +33,7 @@ melian_server_LDADD = \
 	$(LIBEVENT_LIBS) \
 	$(MYSQL_LIBS) \
 	$(SQLITE_LIBS) \
+	$(POSTGRESQL_LIBS) \
 	$(PTHREAD_LIBS) \
 	$(LIBM)
 

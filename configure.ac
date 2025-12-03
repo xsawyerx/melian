@@ -149,20 +149,63 @@ fi
 AC_SUBST([SQLITE_CFLAGS])
 AC_SUBST([SQLITE_LIBS])
 
-if test "x$have_mysql" != "xyes" && test "x$have_sqlite3" != "xyes"; then
-  AC_MSG_ERROR([No supported database drivers found. Install MySQL client and/or SQLite3, or use --with-mysql/--with-sqlite3 to point to their prefixes.])
-fi
+AC_ARG_WITH([postgresql],
+  [AS_HELP_STRING([--with-postgresql=PREFIX],
+    [Prefix where PostgreSQL/libpq headers and libraries can be found (auto-detect by default)])],
+  [],
+  [with_postgresql=auto])
 
-default_db_driver="none"
-AS_IF([test "x$have_mysql" = "xyes"], [default_db_driver="mysql"])
-AS_IF([test "x$have_sqlite3" = "xyes" && test "x$default_db_driver" = "xnone"],
-      [default_db_driver="sqlite"])
+have_postgresql=no
+POSTGRESQL_CFLAGS=""
+POSTGRESQL_LIBS=""
+if test "x$with_postgresql" != "xno"; then
+  case $with_postgresql in
+    auto|yes)
+      POSTGRESQL_CPPFLAGS_CAND=""
+      POSTGRESQL_LDFLAGS_CAND=""
+      ;;
+    *)
+      POSTGRESQL_CPPFLAGS_CAND="-I$with_postgresql/include"
+      POSTGRESQL_LDFLAGS_CAND="-L$with_postgresql/lib"
+      ;;
+  esac
+
+  save_CPPFLAGS="$CPPFLAGS"
+  CPPFLAGS="$POSTGRESQL_CPPFLAGS_CAND $CPPFLAGS"
+  AC_CHECK_HEADER([libpq-fe.h],
+    [have_postgresql=yes],
+    [have_postgresql=no])
+  CPPFLAGS="$save_CPPFLAGS"
+
+  if test "x$have_postgresql" = "xyes"; then
+    save_LDFLAGS="$LDFLAGS"
+    LDFLAGS="$POSTGRESQL_LDFLAGS_CAND $LDFLAGS"
+    AC_CHECK_LIB([pq], [PQconnectdb],
+      [POSTGRESQL_LIBS="$POSTGRESQL_LDFLAGS_CAND -lpq"],
+      [have_postgresql=no])
+    LDFLAGS="$save_LDFLAGS"
+  fi
+
+  if test "x$have_postgresql" = "xyes"; then
+    POSTGRESQL_CFLAGS="$POSTGRESQL_CPPFLAGS_CAND"
+    AC_DEFINE([HAVE_POSTGRESQL], [1], [Define if PostgreSQL/libpq support is available])
+  elif test "x$with_postgresql" = "xyes"; then
+    AC_MSG_ERROR([PostgreSQL support requested but libpq-fe.h or libpq not found])
+  fi
+fi
+AC_SUBST([POSTGRESQL_CFLAGS])
+AC_SUBST([POSTGRESQL_LIBS])
+
+if test "x$have_mysql" != "xyes" && test "x$have_sqlite3" != "xyes" && test "x$have_postgresql" != "xyes"; then
+  AC_MSG_ERROR([No supported database drivers found. Install MySQL client, SQLite3, and/or PostgreSQL, or use --with-<driver>=PREFIX to point to their prefixes.])
+fi
 
 AC_MSG_NOTICE([])
 AC_MSG_NOTICE([Database backend configuration:])
 AC_MSG_NOTICE([  MySQL : $have_mysql])
 AC_MSG_NOTICE([  SQLite: $have_sqlite3])
-AC_MSG_NOTICE([  Default driver: $default_db_driver])
+AC_MSG_NOTICE([  PostgreSQL: $have_postgresql])
+AC_MSG_NOTICE([  Runtime selection: set MELIAN_DB_DRIVER to mysql, sqlite, or postgresql])
 AC_MSG_NOTICE([])
 
 # libjansson is mandatory for the client

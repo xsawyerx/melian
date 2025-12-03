@@ -8,6 +8,9 @@
 #ifdef HAVE_SQLITE3
 #include <sqlite3.h>
 #endif
+#ifdef HAVE_POSTGRESQL
+#include <libpq-fe.h>
+#endif
 #include "util.h"
 #include "log.h"
 #include "arena.h"
@@ -42,7 +45,16 @@ static unsigned db_sqlite_query_into_hash(DB* db, Table* table, struct TableSlot
                             unsigned* min_id, unsigned* max_id);
 #endif
 
-#if !defined(HAVE_MYSQL) || !defined(HAVE_SQLITE3)
+#ifdef HAVE_POSTGRESQL
+static void postgres_refresh_versions(DB* db);
+static void db_postgresql_connect(DB* db);
+static void db_postgresql_disconnect(DB* db);
+static unsigned db_postgresql_get_table_size(DB* db, const char* table);
+static unsigned db_postgresql_query_into_hash(DB* db, Table* table, struct TableSlot* slot,
+                            unsigned* min_id, unsigned* max_id);
+#endif
+
+#if !defined(HAVE_MYSQL) || !defined(HAVE_SQLITE3) || !defined(HAVE_POSTGRESQL)
 static void driver_not_supported(ConfigDbDriver driver);
 #endif
 
@@ -75,6 +87,14 @@ DB* db_build(Config* config) {
       case CONFIG_DB_DRIVER_SQLITE:
 #ifdef HAVE_SQLITE3
         sqlite_refresh_versions(db);
+        break;
+#else
+        driver_not_supported(config->db.driver);
+        break;
+#endif
+      case CONFIG_DB_DRIVER_POSTGRESQL:
+#ifdef HAVE_POSTGRESQL
+        postgres_refresh_versions(db);
         break;
 #else
         driver_not_supported(config->db.driver);
@@ -119,6 +139,14 @@ void db_connect(DB* db) {
       driver_not_supported(db->config->db.driver);
       break;
 #endif
+    case CONFIG_DB_DRIVER_POSTGRESQL:
+#ifdef HAVE_POSTGRESQL
+      db_postgresql_connect(db);
+      break;
+#else
+      driver_not_supported(db->config->db.driver);
+      break;
+#endif
     default:
       LOG_FATAL("Unknown database driver id %d", db->config->db.driver);
       break;
@@ -142,6 +170,13 @@ void db_disconnect(DB* db) {
 #else
       break;
 #endif
+    case CONFIG_DB_DRIVER_POSTGRESQL:
+#ifdef HAVE_POSTGRESQL
+      db_postgresql_disconnect(db);
+      break;
+#else
+      break;
+#endif
     default:
       break;
   }
@@ -160,6 +195,13 @@ unsigned db_get_table_size(DB* db, const char* table) {
     case CONFIG_DB_DRIVER_SQLITE:
 #ifdef HAVE_SQLITE3
       return db_sqlite_get_table_size(db, table);
+#else
+      driver_not_supported(db->config->db.driver);
+      return 0;
+#endif
+    case CONFIG_DB_DRIVER_POSTGRESQL:
+#ifdef HAVE_POSTGRESQL
+      return db_postgresql_get_table_size(db, table);
 #else
       driver_not_supported(db->config->db.driver);
       return 0;
@@ -187,12 +229,19 @@ unsigned db_query_into_hash(DB* db, Table* table, struct TableSlot* slot,
       driver_not_supported(db->config->db.driver);
       return 0;
 #endif
+    case CONFIG_DB_DRIVER_POSTGRESQL:
+#ifdef HAVE_POSTGRESQL
+      return db_postgresql_query_into_hash(db, table, slot, min_id, max_id);
+#else
+      driver_not_supported(db->config->db.driver);
+      return 0;
+#endif
     default:
       return 0;
   }
 }
 
-#if !defined(HAVE_MYSQL) || !defined(HAVE_SQLITE3)
+#if !defined(HAVE_MYSQL) || !defined(HAVE_SQLITE3) || !defined(HAVE_POSTGRESQL)
 static void driver_not_supported(ConfigDbDriver driver) {
   LOG_FATAL("Database driver %s requested but not available in this build",
             config_db_driver_name(driver));
@@ -640,3 +689,221 @@ static unsigned db_sqlite_query_into_hash(DB* db, Table* table, struct TableSlot
 }
 
 #endif  // HAVE_SQLITE3
+
+#ifdef HAVE_POSTGRESQL
+
+static void postgres_refresh_versions(DB* db) {
+  db->client_version[0] = '\0';
+  int lv = PQlibVersion();
+  if (lv > 0) {
+    int major = lv / 10000;
+    int minor = (lv / 100) % 100;
+    int patch = lv % 100;
+    snprintf(db->client_version, sizeof(db->client_version), "%d.%d.%d", major, minor, patch);
+  }
+
+  db->server_version[0] = '\0';
+  if (!db->postgres) return;
+  const char* ver = PQparameterStatus(db->postgres, "server_version");
+  if (ver && ver[0]) {
+    snprintf(db->server_version, sizeof(db->server_version), "%s", ver);
+    return;
+  }
+  int sv = PQserverVersion(db->postgres);
+  if (sv > 0) {
+    int major = sv / 10000;
+    int minor = (sv / 100) % 100;
+    int patch = sv % 100;
+    snprintf(db->server_version, sizeof(db->server_version), "%d.%d.%d", major, minor, patch);
+  }
+}
+
+static void db_postgresql_connect(DB* db) {
+  ConfigDb* cfg = &db->config->db;
+  char portbuf[16];
+  const char* portstr = NULL;
+  if (cfg->port > 0) {
+    snprintf(portbuf, sizeof(portbuf), "%u", cfg->port);
+    portstr = portbuf;
+  }
+  PGconn* conn = PQsetdbLogin(
+      cfg->host && cfg->host[0] ? cfg->host : NULL,
+      portstr,
+      NULL, NULL,
+      cfg->database && cfg->database[0] ? cfg->database : NULL,
+      cfg->user && cfg->user[0] ? cfg->user : NULL,
+      cfg->password && cfg->password[0] ? cfg->password : NULL);
+  if (!conn) {
+    LOG_WARN("Could not allocate PostgreSQL client");
+    return;
+  }
+  if (PQstatus(conn) != CONNECTION_OK) {
+    LOG_WARN("Could not connect to PostgreSQL server: %s", PQerrorMessage(conn));
+    PQfinish(conn);
+    return;
+  }
+  db->postgres = conn;
+  postgres_refresh_versions(db);
+  LOG_INFO("Connected to PostgreSQL server version [%s] at %s:%u as user %s",
+           db->server_version[0] ? db->server_version : "unknown",
+           cfg->host ? cfg->host : "localhost",
+           cfg->port,
+           cfg->user ? cfg->user : "");
+}
+
+static void db_postgresql_disconnect(DB* db) {
+  if (!db->postgres) return;
+  const char* host = db->config->db.host ? db->config->db.host : "localhost";
+  unsigned port = db->config->db.port;
+  PQfinish(db->postgres);
+  db->postgres = NULL;
+  LOG_INFO("Disconnected from PostgreSQL server at %s:%u", host, port);
+}
+
+static unsigned db_postgresql_get_table_size(DB* db, const char* table) {
+  unsigned count = 0;
+  if (!db->postgres) {
+    LOG_WARN("Cannot get table size for %s, PostgreSQL connection not established", table);
+    return 0;
+  }
+  char sql[MAX_SQL_LEN];
+  snprintf(sql, MAX_SQL_LEN, "SELECT COUNT(*) FROM %s", table);
+  PGresult* res = PQexec(db->postgres, sql);
+  if (!res) {
+    LOG_WARN("Cannot run query [%s] for table %s: %s", sql, table, PQerrorMessage(db->postgres));
+    return 0;
+  }
+  if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+    LOG_WARN("Cannot run query [%s] for table %s: %s", sql, table, PQerrorMessage(db->postgres));
+    PQclear(res);
+    return 0;
+  }
+  if (PQntuples(res) >= 1) {
+    const char* value = PQgetvalue(res, 0, 0);
+    count = (unsigned) strtoul(value ? value : "0", 0, 10);
+  }
+  PQclear(res);
+  return count;
+}
+
+static unsigned db_postgresql_query_into_hash(DB* db, Table* table, struct TableSlot* slot,
+                                              unsigned* min_id, unsigned* max_id) {
+  unsigned rows = 0;
+  if (!db->postgres) {
+    LOG_WARN("Cannot query table data for %s, PostgreSQL connection not established", table_name(table));
+    return 0;
+  }
+  char sql[MAX_SQL_LEN];
+  snprintf(sql, MAX_SQL_LEN, "SELECT * FROM %s", table_name(table));
+  PGresult* res = PQexec(db->postgres, sql);
+  if (!res) {
+    LOG_WARN("Cannot run query [%s] for table %s: %s", sql, table_name(table), PQerrorMessage(db->postgres));
+    return 0;
+  }
+  if (PQresultStatus(res) != PGRES_TUPLES_OK) {
+    LOG_WARN("Cannot run query [%s] for table %s: %s", sql, table_name(table), PQerrorMessage(db->postgres));
+    PQclear(res);
+    return 0;
+  }
+  int num_fields = PQnfields(res);
+  if (num_fields > MAX_FIELDS) {
+    LOG_WARN("Expected at most %u number of fields for SELECT query for table %s, got %d",
+             MAX_FIELDS, table_name(table), num_fields);
+    PQclear(res);
+    return 0;
+  }
+  char names[MAX_FIELDS][MAX_FIELD_NAME_LEN];
+  int index_pos[MELIAN_MAX_INDEXES];
+  for (unsigned idx = 0; idx < MELIAN_MAX_INDEXES; ++idx) index_pos[idx] = -1;
+  for (int col = 0; col < num_fields; ++col) {
+    const char* fname = PQfname(res, col);
+    snprintf(names[col], MAX_FIELD_NAME_LEN, "%s", fname ? fname : "");
+    for (unsigned idx = 0; idx < table->index_count; ++idx) {
+      if (strcmp(names[col], table->indexes[idx].column) == 0) {
+        index_pos[idx] = col;
+      }
+    }
+  }
+  *min_id = (unsigned)-1;
+  *max_id = 0;
+  double t0 = now_sec();
+  int num_rows = PQntuples(res);
+  for (int row = 0; row < num_rows; ++row) {
+    char jbuf[MAX_JSON_LEN];
+    unsigned jpos = 0;
+    jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "{");
+    unsigned cols = 0;
+    for (int col = 0; col < num_fields; ++col) {
+      int col_is_null = PQgetisnull(res, row, col);
+      if (db->config->table.strip_null && col_is_null) continue;
+      if (cols > 0) jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, ",");
+      jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\":", names[col]);
+      if (col_is_null) {
+        jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "null");
+      } else {
+        const char* value = PQgetvalue(res, row, col);
+        if (!value) value = "";
+        switch (PQftype(res, col)) {
+          case 20:
+          case 21:
+          case 23:
+          case 700:
+          case 701:
+          case 1700:
+            jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "%s", value);
+            break;
+          default:
+            jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\"", value);
+            break;
+        }
+      }
+      ++cols;
+    }
+    jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "}");
+    ++rows;
+    unsigned frame = arena_store_framed(slot->arena, (uint8_t*)jbuf, jpos);
+    if (frame == (unsigned)-1) {
+      LOG_WARN("Could not store framed JSON for SELECT query for table %s", table_name(table));
+      break;
+    }
+    int insert_error = 0;
+    for (unsigned idx = 0; idx < table->index_count; ++idx) {
+      int col_pos = index_pos[idx];
+      if (col_pos < 0) continue;
+      if (!slot->indexes[idx]) continue;
+      if (table->indexes[idx].type == CONFIG_INDEX_TYPE_INT) {
+        const char* value = PQgetvalue(res, row, col_pos);
+        unsigned key_int = (unsigned) strtoul(value ? value : "0", 0, 10);
+        if (!hash_insert(slot->indexes[idx], &key_int, sizeof(unsigned),
+                         frame, jpos + sizeof(unsigned))) {
+          LOG_WARN("Could not insert row for table %s key %u index %u",
+                   table_name(table), key_int, idx);
+          insert_error = 1;
+          break;
+        }
+        if (idx == 0) {
+          if (*min_id > key_int) *min_id = key_int;
+          if (*max_id < key_int) *max_id = key_int;
+        }
+      } else {
+        const char* value = PQgetvalue(res, row, col_pos);
+        int hlen = PQgetlength(res, row, col_pos);
+        if (!value || !hlen) continue;
+        if (!hash_insert(slot->indexes[idx], value, (unsigned) hlen, frame, jpos + sizeof(unsigned))) {
+          LOG_WARN("Could not insert row for table %s key %.*s index %u",
+                   table_name(table), hlen, value, idx);
+          insert_error = 1;
+          break;
+        }
+      }
+    }
+    if (insert_error) break;
+  }
+  double t1 = now_sec();
+  unsigned long elapsed = (t1 - t0) * 1000000;
+  LOG_INFO("Fetched %u rows from table %s in %lu us", rows, table_name(table), elapsed);
+  PQclear(res);
+  return rows;
+}
+
+#endif  // HAVE_POSTGRESQL
