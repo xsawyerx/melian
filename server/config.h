@@ -28,6 +28,7 @@ typedef struct ConfigSocket {
 #define MELIAN_MAX_TABLES 64
 #define MELIAN_MAX_INDEXES 16
 #define MELIAN_MAX_NAME_LEN 256
+#define MELIAN_MAX_SELECT_LEN 4096
 
 typedef enum ConfigIndexType {
   CONFIG_INDEX_TYPE_INT,
@@ -45,6 +46,7 @@ typedef struct ConfigTableSpec {
   char name[MELIAN_MAX_NAME_LEN];
   unsigned period;
   unsigned index_count;
+  char select_stmt[MELIAN_MAX_SELECT_LEN];
   ConfigIndexSpec indexes[MELIAN_MAX_INDEXES];
 } ConfigTableSpec;
 

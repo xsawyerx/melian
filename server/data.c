@@ -33,6 +33,7 @@ Table* table_build(const ConfigTableSpec* spec, unsigned arena_cap) {
     table->table_id = spec->id;
     strncpy(table->name, spec->name, sizeof(table->name)-1);
     table->period = spec->period ? spec->period : DATA_REFRESH_PERIOD;
+    strncpy(table->select_stmt, spec->select_stmt, sizeof(table->select_stmt) - 1);
     table->index_count = spec->index_count;
     for (unsigned idx = 0; idx < spec->index_count; ++idx) {
       table->indexes[idx].id = spec->indexes[idx].id;
@@ -104,7 +105,7 @@ unsigned table_load_from_db(Table* table, struct DB* db, unsigned now, unsigned 
   struct TableSlot* slot = &table->slots[pos];
   arena_reset(slot->arena);
 
-  unsigned size = db_get_table_size(db, table->name);
+  unsigned size = db_get_table_size(db, table);
   unsigned hash_cap = 2 * next_power_of_two(size, 1);
   LOG_DEBUG("Building hash tables for %s, size %u, capacity %u", table->name, size, hash_cap);
 

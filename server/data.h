@@ -35,6 +35,7 @@ typedef struct TableIndex {
 typedef struct Table {
   unsigned table_id;
   char name[MELIAN_MAX_NAME_LEN];
+  char select_stmt[MELIAN_MAX_SELECT_LEN];
   unsigned period;
   unsigned index_count;
   TableIndex indexes[MELIAN_MAX_INDEXES];

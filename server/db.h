@@ -46,6 +46,6 @@ void db_destroy(DB* db);
 
 void db_connect(DB* db);
 void db_disconnect(DB* db);
-unsigned db_get_table_size(DB* db, const char* table);
+unsigned db_get_table_size(DB* db, struct Table* table);
 unsigned db_query_into_hash(DB* db, struct Table* table, struct TableSlot* slot,
                             unsigned* min_id, unsigned* max_id);
