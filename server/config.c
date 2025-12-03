@@ -16,6 +16,8 @@ static ConfigIndexType parse_index_type(const char* value);
 static ConfigDbDriver parse_db_driver(const char* value);
 static const char* get_db_env_string(const char* primary, const char* legacy, const char* def);
 static int get_db_env_number(const char* primary, const char* legacy, const char* def);
+static void apply_select_overrides(Config* config);
+static ConfigTableSpec* find_table_spec(Config* config, const char* name);
 
 Config* config_build(void) {
   Config* config = 0;
@@ -63,6 +65,7 @@ Config* config_build(void) {
       break;
     }
     parse_table_specs(config, config->table.schema);
+    apply_select_overrides(config);
   } while (0);
 
   return config;
@@ -82,6 +85,7 @@ void config_show_usage(void) {
 	printf("  MELIAN_SOCKET_PORT     : port where server will listen for TCP connections -- 0 to disable (default: %s)\n", MELIAN_DEFAULT_SOCKET_PORT);
 	printf("  MELIAN_SOCKET_PATH     : name of UNIX socket file to create -- empty to disable (default: %s)\n", MELIAN_DEFAULT_SOCKET_PATH);
 	printf("  MELIAN_TABLE_PERIOD    : how often (seconds) to refresh the data by default (default: %s)\n", MELIAN_DEFAULT_TABLE_PERIOD);
+	printf("  MELIAN_TABLE_SELECTS   : semicolon-separated list of table=SELECT ... overrides\n");
 	printf("  MELIAN_TABLE_STRIP_NULL: whether to strip null values in returned payloads (default: %s)\n", MELIAN_DEFAULT_TABLE_STRIP_NULL);
 	printf("  MELIAN_TABLE_TABLES    : schema spec (default: %s); format per entry:\n", MELIAN_DEFAULT_TABLE_TABLES);
 	printf("      name[#id][|period][|column#idx[:type];column#idx[:type]...]\n");
@@ -264,6 +268,9 @@ static unsigned parse_table_specs(Config* config, const char* raw) {
       LOG_WARN("Table %s missing index specification, skipping", spec->name);
       continue;
     }
+    if (!spec->select_stmt[0]) {
+      snprintf(spec->select_stmt, sizeof(spec->select_stmt), "SELECT * FROM %s", spec->name);
+    }
     ++config->table.table_count;
   }
   free(spec_copy);
@@ -314,4 +321,47 @@ const char* config_db_driver_name(ConfigDbDriver driver) {
     case CONFIG_DB_DRIVER_POSTGRESQL: return "postgresql";
     default: return "unknown";
   }
+}
+
+static ConfigTableSpec* find_table_spec(Config* config, const char* name) {
+  if (!name) return NULL;
+  for (unsigned i = 0; i < config->table.table_count; ++i) {
+    ConfigTableSpec* spec = &config->table.tables[i];
+    if (strcasecmp(spec->name, name) == 0) return spec;
+  }
+  return NULL;
+}
+
+static void apply_select_overrides(Config* config) {
+  const char* raw = getenv("MELIAN_TABLE_SELECTS");
+  if (!raw || !raw[0]) return;
+  char* copy = strdup(raw);
+  if (!copy) {
+    LOG_WARN("Could not duplicate MELIAN_TABLE_SELECTS");
+    return;
+  }
+  char* ctx = 0;
+  for (char* entry = strtok_r(copy, ";", &ctx); entry; entry = strtok_r(NULL, ";", &ctx)) {
+    char* trimmed = trim(entry);
+    if (!trimmed[0]) continue;
+    char* eq = strchr(trimmed, '=');
+    if (!eq) {
+      LOG_WARN("Invalid select override [%s], missing '='", trimmed);
+      continue;
+    }
+    *eq = '\0';
+    char* name = trim(trimmed);
+    char* stmt = trim(eq + 1);
+    if (!name[0] || !stmt[0]) {
+      LOG_WARN("Invalid select override entry [%s]", entry);
+      continue;
+    }
+    ConfigTableSpec* spec = find_table_spec(config, name);
+    if (!spec) {
+      LOG_WARN("Select override references unknown table %s", name);
+      continue;
+    }
+    snprintf(spec->select_stmt, sizeof(spec->select_stmt), "%s", stmt);
+  }
+  free(copy);
 }

@@ -27,11 +27,19 @@ enum {
   MAX_SQL_LEN = 1024,
 };
 
+static const char* table_select_sql(Table* table) {
+  if (!table) return "";
+  if (!table->select_stmt[0] && table->name[0]) {
+    snprintf(table->select_stmt, sizeof(table->select_stmt), "SELECT * FROM %s", table->name);
+  }
+  return table->select_stmt;
+}
+
 #ifdef HAVE_MYSQL
 static void mysql_refresh_versions(DB* db);
 static void db_mysql_connect(DB* db);
 static void db_mysql_disconnect(DB* db);
-static unsigned db_mysql_get_table_size(DB* db, const char* table);
+static unsigned db_mysql_get_table_size(DB* db, Table* table);
 static unsigned db_mysql_query_into_hash(DB* db, Table* table, struct TableSlot* slot,
                             unsigned* min_id, unsigned* max_id);
 #endif
@@ -40,7 +48,7 @@ static unsigned db_mysql_query_into_hash(DB* db, Table* table, struct TableSlot*
 static void sqlite_refresh_versions(DB* db);
 static void db_sqlite_connect(DB* db);
 static void db_sqlite_disconnect(DB* db);
-static unsigned db_sqlite_get_table_size(DB* db, const char* table);
+static unsigned db_sqlite_get_table_size(DB* db, Table* table);
 static unsigned db_sqlite_query_into_hash(DB* db, Table* table, struct TableSlot* slot,
                             unsigned* min_id, unsigned* max_id);
 #endif
@@ -49,7 +57,7 @@ static unsigned db_sqlite_query_into_hash(DB* db, Table* table, struct TableSlot
 static void postgres_refresh_versions(DB* db);
 static void db_postgresql_connect(DB* db);
 static void db_postgresql_disconnect(DB* db);
-static unsigned db_postgresql_get_table_size(DB* db, const char* table);
+static unsigned db_postgresql_get_table_size(DB* db, Table* table);
 static unsigned db_postgresql_query_into_hash(DB* db, Table* table, struct TableSlot* slot,
                             unsigned* min_id, unsigned* max_id);
 #endif
@@ -182,7 +190,7 @@ void db_disconnect(DB* db) {
   }
 }
 
-unsigned db_get_table_size(DB* db, const char* table) {
+unsigned db_get_table_size(DB* db, Table* table) {
   if (!db) return 0;
   switch (db->config->db.driver) {
     case CONFIG_DB_DRIVER_MYSQL:
@@ -293,34 +301,35 @@ static void db_mysql_disconnect(DB* db) {
   LOG_INFO("Disconnected from MySQL server at %s:%u", cfg->host, cfg->port);
 }
 
-static unsigned db_mysql_get_table_size(DB* db, const char* table) {
+static unsigned db_mysql_get_table_size(DB* db, Table* table) {
   unsigned rows = 0;
   unsigned count = 0;
   MYSQL_RES *result = 0;
   do {
     if (!db->mysql) {
-      LOG_WARN("Cannot get table size for %s, invalid MySQL connection", table);
+      LOG_WARN("Cannot get table size for %s, invalid MySQL connection", table_name(table));
       break;
     }
 
-    LOG_DEBUG("Counting rows from table %s", table);
+    const char* select_sql = table_select_sql(table);
+    LOG_DEBUG("Counting rows from table %s", table_name(table));
     char sql[MAX_SQL_LEN];
-    snprintf(sql, MAX_SQL_LEN, "SELECT COUNT(*) FROM %s", table);
+    snprintf(sql, MAX_SQL_LEN, "SELECT COUNT(*) FROM (%s) AS melian_sub", select_sql);
     if (mysql_query((MYSQL*) db->mysql, sql)) {
-      LOG_WARN("Cannot run query [%s] for table %s", sql, table);
+      LOG_WARN("Cannot run query [%s] for table %s", sql, table_name(table));
       break;
     }
 
     result = mysql_store_result((MYSQL*) db->mysql);
     if (!result) {
-      LOG_WARN("Cannot store MySQL result for COUNT query for table %s", table);
+      LOG_WARN("Cannot store MySQL result for COUNT query for table %s", table_name(table));
       break;
     }
 
     unsigned num_fields = mysql_num_fields(result);
     if (num_fields != 1) {
       LOG_WARN("Expected %u number of fields for COUNT query for table %s, got %u",
-               1, table, num_fields);
+               1, table_name(table), num_fields);
       break;
     }
 
@@ -333,13 +342,13 @@ static unsigned db_mysql_get_table_size(DB* db, const char* table) {
     }
     if (rows != 1) {
       LOG_WARN("Expected %u rows for COUNT query for table %s, got %u",
-               1, table, rows);
+               1, table_name(table), rows);
       break;
     }
   } while (0);
 
   if (result) mysql_free_result(result);
-  LOG_DEBUG("Counted %u rows from table %s", count, table);
+  LOG_DEBUG("Counted %u rows from table %s", count, table_name(table));
   return count;
 }
 
@@ -355,10 +364,9 @@ static unsigned db_mysql_query_into_hash(DB* db, Table* table, struct TableSlot*
 
     double t0 = now_sec();
     LOG_DEBUG("Fetching from table %s", table_name(table));
-    char sql[MAX_SQL_LEN];
-    snprintf(sql, MAX_SQL_LEN, "SELECT * FROM %s", table_name(table));
-    if (mysql_query((MYSQL*) db->mysql, sql)) {
-      LOG_WARN("Cannot run query [%s] for table %s", sql, table_name(table));
+    const char* query = table_select_sql(table);
+    if (mysql_query((MYSQL*) db->mysql, query)) {
+      LOG_WARN("Cannot run query [%s] for table %s", query, table_name(table));
       break;
     }
 
@@ -548,24 +556,24 @@ static void db_sqlite_disconnect(DB* db) {
   db->sqlite = NULL;
 }
 
-static unsigned db_sqlite_get_table_size(DB* db, const char* table) {
+static unsigned db_sqlite_get_table_size(DB* db, Table* table) {
   unsigned count = 0;
   sqlite3_stmt* stmt = NULL;
   do {
     if (!db->sqlite) {
-      LOG_WARN("Cannot get table size for %s, SQLite database not open", table);
+      LOG_WARN("Cannot get table size for %s, SQLite database not open", table_name(table));
       break;
     }
     char sql[MAX_SQL_LEN];
-    snprintf(sql, MAX_SQL_LEN, "SELECT COUNT(*) FROM %s", table);
+    snprintf(sql, MAX_SQL_LEN, "SELECT COUNT(*) FROM (%s) AS melian_sub", table_select_sql(table));
     if (sqlite3_prepare_v2(db->sqlite, sql, -1, &stmt, NULL) != SQLITE_OK) {
-      LOG_WARN("Cannot run query [%s] for table %s: %s", sql, table, sqlite3_errmsg(db->sqlite));
+      LOG_WARN("Cannot run query [%s] for table %s: %s", sql, table_name(table), sqlite3_errmsg(db->sqlite));
       break;
     }
     if (sqlite3_step(stmt) == SQLITE_ROW) {
       count = (unsigned) sqlite3_column_int64(stmt, 0);
     } else {
-      LOG_WARN("COUNT query for table %s returned no rows", table);
+      LOG_WARN("COUNT query for table %s returned no rows", table_name(table));
     }
   } while (0);
   if (stmt) sqlite3_finalize(stmt);
@@ -583,10 +591,9 @@ static unsigned db_sqlite_query_into_hash(DB* db, Table* table, struct TableSlot
     }
 
     double t0 = now_sec();
-    char sql[MAX_SQL_LEN];
-    snprintf(sql, MAX_SQL_LEN, "SELECT * FROM %s", table_name(table));
-    if (sqlite3_prepare_v2(db->sqlite, sql, -1, &stmt, NULL) != SQLITE_OK) {
-      LOG_WARN("Cannot run query [%s] for table %s: %s", sql, table_name(table), sqlite3_errmsg(db->sqlite));
+    const char* query = table_select_sql(table);
+    if (sqlite3_prepare_v2(db->sqlite, query, -1, &stmt, NULL) != SQLITE_OK) {
+      LOG_WARN("Cannot run query [%s] for table %s: %s", query, table_name(table), sqlite3_errmsg(db->sqlite));
       break;
     }
 
@@ -760,21 +767,21 @@ static void db_postgresql_disconnect(DB* db) {
   LOG_INFO("Disconnected from PostgreSQL server at %s:%u", host, port);
 }
 
-static unsigned db_postgresql_get_table_size(DB* db, const char* table) {
+static unsigned db_postgresql_get_table_size(DB* db, Table* table) {
   unsigned count = 0;
   if (!db->postgres) {
-    LOG_WARN("Cannot get table size for %s, PostgreSQL connection not established", table);
+    LOG_WARN("Cannot get table size for %s, PostgreSQL connection not established", table_name(table));
     return 0;
   }
   char sql[MAX_SQL_LEN];
-  snprintf(sql, MAX_SQL_LEN, "SELECT COUNT(*) FROM %s", table);
+  snprintf(sql, MAX_SQL_LEN, "SELECT COUNT(*) FROM (%s) AS melian_sub", table_select_sql(table));
   PGresult* res = PQexec(db->postgres, sql);
   if (!res) {
-    LOG_WARN("Cannot run query [%s] for table %s: %s", sql, table, PQerrorMessage(db->postgres));
+    LOG_WARN("Cannot run query [%s] for table %s: %s", sql, table_name(table), PQerrorMessage(db->postgres));
     return 0;
   }
   if (PQresultStatus(res) != PGRES_TUPLES_OK) {
-    LOG_WARN("Cannot run query [%s] for table %s: %s", sql, table, PQerrorMessage(db->postgres));
+    LOG_WARN("Cannot run query [%s] for table %s: %s", sql, table_name(table), PQerrorMessage(db->postgres));
     PQclear(res);
     return 0;
   }
@@ -793,15 +800,14 @@ static unsigned db_postgresql_query_into_hash(DB* db, Table* table, struct Table
     LOG_WARN("Cannot query table data for %s, PostgreSQL connection not established", table_name(table));
     return 0;
   }
-  char sql[MAX_SQL_LEN];
-  snprintf(sql, MAX_SQL_LEN, "SELECT * FROM %s", table_name(table));
-  PGresult* res = PQexec(db->postgres, sql);
+  const char* query = table_select_sql(table);
+  PGresult* res = PQexec(db->postgres, query);
   if (!res) {
-    LOG_WARN("Cannot run query [%s] for table %s: %s", sql, table_name(table), PQerrorMessage(db->postgres));
+    LOG_WARN("Cannot run query [%s] for table %s: %s", query, table_name(table), PQerrorMessage(db->postgres));
     return 0;
   }
   if (PQresultStatus(res) != PGRES_TUPLES_OK) {
-    LOG_WARN("Cannot run query [%s] for table %s: %s", sql, table_name(table), PQerrorMessage(db->postgres));
+    LOG_WARN("Cannot run query [%s] for table %s: %s", query, table_name(table), PQerrorMessage(db->postgres));
     PQclear(res);
     return 0;
   }
