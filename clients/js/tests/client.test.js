@@ -58,6 +58,16 @@ test('fetches table2 by id and hostname', async () => {
   expect(byHost).toEqual(expected);
 });
 
+test('fetch helpers support named parameters', async () => {
+  const byId = await client.fetchByIntFrom('table1', 'id', 5);
+  expect(byId).not.toBeNull();
+  expect(byId.id).toBe(5);
+
+  const byHostname = await client.fetchByStringFrom('table2', 'hostname', 'host-00002');
+  expect(byHostname).not.toBeNull();
+  expect(byHostname.id).toBe(2);
+});
+
 test('schema spec matches describe result', async () => {
   const specClient = await MelianClient.create({ dsn: DSN, schemaSpec: SCHEMA_SPEC });
   const liveSchema = normalizeSchema(client.getSchema());

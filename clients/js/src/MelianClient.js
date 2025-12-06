@@ -79,6 +79,17 @@ export class MelianClient {
     return this.fetchByString(tableId, indexId, key);
   }
 
+  async fetchByStringFrom(tableName, column, key) {
+    const { tableId, indexId } = this.resolveIndex(tableName, column);
+    const keyBuffer = this.#coerceKeyBuffer(key);
+    return this.fetchByString(tableId, indexId, keyBuffer);
+  }
+
+  async fetchByIntFrom(tableName, column, id) {
+    const { tableId, indexId } = this.resolveIndex(tableName, column);
+    return this.fetchByInt(tableId, indexId, id);
+  }
+
   resolveIndex(tableName, column) {
     if (!this.schema) {
       throw new Error('Schema not loaded.');
@@ -267,6 +278,19 @@ export class MelianClient {
       throw new Error(`Invalid ${label} specification: ${value}`);
     }
     return [name, ident];
+  }
+
+  #coerceKeyBuffer(key) {
+    if (Buffer.isBuffer(key)) {
+      return key;
+    }
+    if (typeof key === 'string') {
+      return Buffer.from(key, 'utf8');
+    }
+    if (key instanceof Uint8Array) {
+      return Buffer.from(key);
+    }
+    throw new TypeError('key must be a Buffer, string, or Uint8Array');
   }
 
   #parseDsn(dsn) {

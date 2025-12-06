@@ -71,6 +71,24 @@ class MelianClient:
         key = struct.pack("<I", record_id)
         return self.fetch_by_string(table_id, index_id, key)
 
+    def fetch_by_string_from(
+        self, table_name: str, column_name: str, key: bytes | bytearray | memoryview | str
+    ) -> Optional[Dict[str, Any]]:
+        table_id, index_id = self.resolve_index(table_name, column_name)
+        if isinstance(key, str):
+            key_bytes = key.encode("utf-8")
+        elif isinstance(key, memoryview):
+            key_bytes = key.tobytes()
+        else:
+            key_bytes = bytes(key)
+        return self.fetch_by_string(table_id, index_id, key_bytes)
+
+    def fetch_by_int_from(
+        self, table_name: str, column_name: str, record_id: int
+    ) -> Optional[Dict[str, Any]]:
+        table_id, index_id = self.resolve_index(table_name, column_name)
+        return self.fetch_by_int(table_id, index_id, record_id)
+
     def resolve_index(self, table_name: str, column: str) -> Tuple[int, int]:
         for table in self._schema.get("tables", []):
             if table.get("name") != table_name:

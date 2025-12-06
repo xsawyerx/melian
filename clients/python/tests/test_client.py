@@ -57,6 +57,15 @@ def test_table2_fetch_by_id_and_hostname(client: MelianClient) -> None:
     by_host = client.fetch_by_string(table_id, host_index, b"host-00002")
     assert by_host == expected
 
+def test_named_fetch_helpers(client: MelianClient) -> None:
+    direct = client.fetch_by_int_from("table1", "id", 5)
+    assert direct is not None
+    assert direct["name"] == "item_5"
+
+    named = client.fetch_by_string_from("table2", "hostname", "host-00002")
+    assert named is not None
+    assert named["id"] == 2
+
 def test_schema_spec_matches_live_description() -> None:
     live = MelianClient(dsn=os.getenv("MELIAN_TEST_DSN", DEFAULT_DSN)).schema()
     from_spec = MelianClient(

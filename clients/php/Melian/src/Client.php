@@ -107,6 +107,28 @@ final class Client
     }
 
     /**
+     * Resolves identifiers and fetches a row by a string column.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function fetchByStringFrom(string $tableName, string $column, string $key): ?array
+    {
+        $ids = $this->resolveIndex($tableName, $column);
+        return $this->fetchByString($ids['table_id'], $ids['index_id'], $key);
+    }
+
+    /**
+     * Resolves identifiers and fetches by a numeric column encoded as LE.
+     *
+     * @return array<string,mixed>|null
+     */
+    public function fetchByIntFrom(string $tableName, string $column, int $id): ?array
+    {
+        $ids = $this->resolveIndex($tableName, $column);
+        return $this->fetchByInt($ids['table_id'], $ids['index_id'], $id);
+    }
+
+    /**
      * Resolves table/index identifiers from human-readable names.
      *
      * @return array{table_id:int,index_id:int}

@@ -75,6 +75,17 @@ final class ClientTest extends TestCase
         $this->assertSame($expected, $byHostname);
     }
 
+    public function testNamedFetchHelpers(): void
+    {
+        $byId = $this->client->fetchByIntFrom('table1', 'id', 5);
+        $this->assertNotNull($byId);
+        $this->assertSame(5, $byId['id']);
+
+        $byHostname = $this->client->fetchByStringFrom('table2', 'hostname', 'host-00002');
+        $this->assertNotNull($byHostname);
+        $this->assertSame(2, $byHostname['id']);
+    }
+
     public function testSchemaSpecAndDescribeProduceSameStructure(): void
     {
         $spec = 'table1#0|60|id#0:int,table2#1|60|id#0:int;hostname#1:string';
