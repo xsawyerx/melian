@@ -18,7 +18,7 @@ my %opt = (
     rows        => 10_000,
     rounds      => 5,
     target_cv   => 5,
-    samples     => 3,
+    samples     => 5,
 );
 
 GetOptions(
@@ -38,6 +38,8 @@ $opt{target_cv} > 0 or die "target_cv must be positive\n";
 
 my $json = JSON::XS->new->canonical(1);
 
+my $conn = Melian->create_connection( 'dsn' => $opt{'dsn'} );
+
 my $melian = Melian->new(
     'dsn'         => $opt{dsn},
     ($opt{schema_spec} ? ('schema_spec' => $opt{schema_spec}) : ()),
@@ -48,12 +50,18 @@ my ($table2) = grep { $_->{'name'} eq 'table2' } @{ $schema->{'tables'} }
 my ($id_index) = first { $_->{'column'} eq 'id' } @{ $table2->{'indexes'} }
     or die "table2 is missing an id index\n";
 
+my $table2_id = 1;
+my $id_column_id = 0;
+
 my $redis = Redis->new( server => $opt{redis} );
 $redis->ping;
 
+sub fetch_melian_oo {
+    return $melian->fetch_raw( $table2_id, $id_column_id, pack('V', $_[0]) );
+}
+
 sub fetch_melian {
-    my ($id) = @_;
-    return $melian->fetch_raw( $table2->{'id'}, $id_index->{'id'}, pack('V', $id) );
+    return Melian::fetch_raw_with( $conn, $table2_id, $id_column_id, pack('V', $_[0]) );
 }
 
 sub fetch_redis {
@@ -136,6 +144,7 @@ if ( $opt{samples} > 0 ) {
     @check_ids = @check_ids[ 0 .. $opt{samples} - 1 ] if @check_ids > $opt{samples};
     printf "Verifying %d sample ids ...\n", scalar @check_ids;
     for my $id (@check_ids) {
+        my $melian_oo_payload = fetch_melian_oo($id);
         my $melian_payload = fetch_melian($id);
         my $redis_payload  = fetch_redis($id);
         my $melian_obj     = $json->decode($melian_payload);
@@ -150,5 +159,6 @@ if ( $opt{samples} > 0 ) {
     print "Sample rows match between Melian and Redis.\n\n";
 }
 
-bench( 'Melian (-C equivalent)', \&fetch_melian );
+bench( 'Melian OO (-C equivalent)', \&fetch_melian_oo );
+bench( 'Melian non-OO (-C equivalent)', \&fetch_melian );
 bench( 'Redis (GET)',             \&fetch_redis );
