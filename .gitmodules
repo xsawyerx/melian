@@ -1,0 +1,6 @@
+[submodule "clients/perl"]
+	path = clients/perl
+	url = git@github.com:xsawyerx/melian-perl
+[submodule "clients/rakudo"]
+	path = clients/rakudo
+	url = git@github.com:xsawyerx/melian-raku
