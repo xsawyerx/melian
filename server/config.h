@@ -3,6 +3,10 @@
 // A Config stores the configuration for the system.
 // The default values can be modified by using environment variables.
 
+#include <stddef.h>
+
+#define MELIAN_DEFAULT_CONFIG_FILE "/etc/melian.json"
+
 typedef enum ConfigDbDriver {
   CONFIG_DB_DRIVER_MYSQL = 0,
   CONFIG_DB_DRIVER_SQLITE = 1,
@@ -62,7 +66,14 @@ typedef struct ConfigServer {
   unsigned show_msgs;
 } ConfigServer;
 
+typedef struct ConfigFileData {
+  char* path;
+  char* contents;
+  size_t length;
+} ConfigFileData;
+
 typedef struct Config {
+  ConfigFileData file;
   ConfigDb db;
   ConfigSocket socket;
   ConfigTable table;
@@ -70,6 +81,14 @@ typedef struct Config {
 } Config;
 
 const char* config_db_driver_name(ConfigDbDriver driver);
+
+typedef enum ConfigFileSource {
+  CONFIG_FILE_SOURCE_DEFAULT = 0,
+  CONFIG_FILE_SOURCE_ENV,
+  CONFIG_FILE_SOURCE_CLI,
+} ConfigFileSource;
+
+void config_set_config_file_path(const char* path, ConfigFileSource source);
 
 Config* config_build(void);
 void config_destroy(Config* config);

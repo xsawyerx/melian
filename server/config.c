@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,6 +17,25 @@ static ConfigIndexType parse_index_type(const char* value);
 static ConfigDbDriver parse_db_driver(const char* value);
 static void apply_select_overrides(Config* config);
 static ConfigTableSpec* find_table_spec(Config* config, const char* name);
+static unsigned load_config_file(Config* config);
+static char* read_entire_file(const char* path, size_t* len);
+static const char* resolved_config_file_path(void);
+static unsigned config_file_required(void);
+
+static char* config_file_path = NULL;
+static ConfigFileSource config_file_source = CONFIG_FILE_SOURCE_DEFAULT;
+
+void config_set_config_file_path(const char* path, ConfigFileSource source) {
+  const char* final_path = (path && path[0]) ? path : MELIAN_DEFAULT_CONFIG_FILE;
+  char* copy = strdup(final_path);
+  if (!copy) {
+    LOG_WARN("Could not store config file path %s", final_path);
+    return;
+  }
+  if (config_file_path) free(config_file_path);
+  config_file_path = copy;
+  config_file_source = source;
+}
 
 Config* config_build(void) {
   Config* config = 0;
@@ -23,6 +43,11 @@ Config* config_build(void) {
     config = calloc(1, sizeof(Config));
     if (!config) {
       LOG_WARN("Could not allocate Config object");
+      break;
+    }
+    if (!load_config_file(config)) {
+      config_destroy(config);
+      config = NULL;
       break;
     }
 
@@ -72,6 +97,7 @@ Config* config_build(void) {
 void config_show_usage(void) {
 	printf("\n");
 	printf("Behavior can be controlled using the following environment variables:\n");
+	printf("  MELIAN_CONFIG_FILE     : path to JSON configuration file (default: %s)\n", MELIAN_DEFAULT_CONFIG_FILE);
 	printf("  MELIAN_DB_DRIVER       : database driver to use (mysql, sqlite, postgresql) [required]\n");
 	printf("  MELIAN_DB_HOST         : database host name (default: %s)\n", MELIAN_DEFAULT_DB_HOST);
 	printf("  MELIAN_DB_PORT         : database listening port (default: %s)\n", MELIAN_DEFAULT_DB_PORT);
@@ -94,6 +120,8 @@ void config_show_usage(void) {
 void config_destroy(Config* config) {
   if (!config) return;
   if (config->table.schema) free(config->table.schema);
+  if (config->file.contents) free(config->file.contents);
+  if (config->file.path) free(config->file.path);
   free(config);
 }
 
@@ -347,4 +375,72 @@ static void apply_select_overrides(Config* config) {
     snprintf(spec->select_stmt, sizeof(spec->select_stmt), "%s", stmt);
   }
   free(copy);
+}
+
+static unsigned load_config_file(Config* config) {
+  const char* path = resolved_config_file_path();
+  if (!path || !path[0]) return 1;
+  config->file.path = strdup(path);
+  if (!config->file.path) {
+    LOG_WARN("Could not duplicate config file path %s", path);
+    return config_file_required() ? 0 : 1;
+  }
+  size_t len = 0;
+  char* data = read_entire_file(path, &len);
+  if (!data) {
+    int err = errno;
+    if (config_file_required()) {
+      LOG_WARN("Failed to read config file %s: %s", path, err ? strerror(err) : "unknown error");
+      return 0;
+    }
+    LOG_INFO("Config file %s not loaded (missing or unreadable); continuing with environment configuration", path);
+    return 1;
+  }
+  config->file.contents = data;
+  config->file.length = len;
+  LOG_INFO("Loaded config file %s (%zu bytes)", path, len);
+  return 1;
+}
+
+static char* read_entire_file(const char* path, size_t* len) {
+  FILE* f = fopen(path, "rb");
+  if (!f) return NULL;
+  if (fseek(f, 0, SEEK_END) != 0) {
+    fclose(f);
+    return NULL;
+  }
+  long size = ftell(f);
+  if (size < 0) {
+    fclose(f);
+    return NULL;
+  }
+  if (fseek(f, 0, SEEK_SET) != 0) {
+    fclose(f);
+    return NULL;
+  }
+  char* data = malloc((size_t)size + 1);
+  if (!data) {
+    fclose(f);
+    return NULL;
+  }
+  size_t read = fread(data, 1, (size_t)size, f);
+  fclose(f);
+  if (read != (size_t)size) {
+    free(data);
+    return NULL;
+  }
+  data[size] = '\0';
+  if (len) *len = (size_t)size;
+  return data;
+}
+
+static const char* resolved_config_file_path(void) {
+  if (config_file_path && config_file_path[0]) {
+    return config_file_path;
+  }
+  return MELIAN_DEFAULT_CONFIG_FILE;
+}
+
+static unsigned config_file_required(void) {
+  return config_file_source != CONFIG_FILE_SOURCE_DEFAULT;
 }
