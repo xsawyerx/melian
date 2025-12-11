@@ -72,7 +72,7 @@ Config* config_build(void) {
       break;
     }
 
-    const char* driver_raw = getenv("MELIAN_DB_DRIVER");
+    const char* driver_raw = get_config_string("MELIAN_DB_DRIVER", NULL);
     if (!driver_raw || !driver_raw[0]) {
       LOG_FATAL("MELIAN_DB_DRIVER must be set to mysql, sqlite, or postgresql");
     }
