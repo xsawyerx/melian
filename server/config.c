@@ -1,8 +1,11 @@
+#include <ctype.h>
 #include <errno.h>
+#include <jansson.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <stdarg.h>
 #include "util.h"
 #include "log.h"
 #include "protocol.h"
@@ -21,9 +24,27 @@ static unsigned load_config_file(Config* config);
 static char* read_entire_file(const char* path, size_t* len);
 static const char* resolved_config_file_path(void);
 static unsigned config_file_required(void);
+static unsigned parse_config_file_defaults(const char* json);
+static void clear_config_file_overrides(void);
+static const char* config_file_default_for(const char* name);
+static void set_override_string(char** field, const char* value);
+static void set_override_owned(char** field, char* value);
+static int sb_append(char** buf, size_t* len, size_t* cap, const char* fmt, ...);
+static char* build_tables_override(json_t* tables);
 
 static char* config_file_path = NULL;
 static ConfigFileSource config_file_source = CONFIG_FILE_SOURCE_DEFAULT;
+struct ConfigFileOverrides {
+  char* db_driver;
+  char* db_host;
+  char* db_port;
+  char* db_name;
+  char* db_user;
+  char* db_password;
+  char* sqlite_filename;
+  char* table_tables;
+};
+static struct ConfigFileOverrides config_file_overrides = {0};
 
 void config_set_config_file_path(const char* path, ConfigFileSource source) {
   const char* final_path = (path && path[0]) ? path : MELIAN_DEFAULT_CONFIG_FILE;
@@ -127,8 +148,10 @@ void config_destroy(Config* config) {
 
 static const char* get_config_string(const char* name, const char* def) {
   const char* value = getenv(name);
-  if (!value) return def;
-  return value;
+  if (value && value[0]) return value;
+  const char* override = config_file_default_for(name);
+  if (override && override[0]) return override;
+  return def;
 }
 
 static int get_config_number(const char* name, const char* def) {
@@ -378,6 +401,7 @@ static void apply_select_overrides(Config* config) {
 }
 
 static unsigned load_config_file(Config* config) {
+  clear_config_file_overrides();
   const char* path = resolved_config_file_path();
   if (!path || !path[0]) return 1;
   config->file.path = strdup(path);
@@ -399,6 +423,13 @@ static unsigned load_config_file(Config* config) {
   config->file.contents = data;
   config->file.length = len;
   LOG_INFO("Loaded config file %s (%zu bytes)", path, len);
+  if (!parse_config_file_defaults(config->file.contents)) {
+    if (config_file_required()) {
+      LOG_WARN("Failed to parse config file %s", path);
+      return 0;
+    }
+    LOG_WARN("Ignoring invalid config file %s", path);
+  }
   return 1;
 }
 
@@ -443,4 +474,201 @@ static const char* resolved_config_file_path(void) {
 
 static unsigned config_file_required(void) {
   return config_file_source != CONFIG_FILE_SOURCE_DEFAULT;
+}
+
+static unsigned parse_config_file_defaults(const char* json) {
+  clear_config_file_overrides();
+  if (!json || !json[0]) return 1;
+  json_error_t error;
+  json_t* root = json_loads(json, 0, &error);
+  if (!root) {
+    LOG_WARN("Config file JSON parse error at line %d: %s", error.line, error.text);
+    return 0;
+  }
+
+  json_t* database = json_object_get(root, "database");
+  if (json_is_object(database)) {
+    json_t* driver = json_object_get(database, "driver");
+    if (json_is_string(driver)) {
+      set_override_string(&config_file_overrides.db_driver, json_string_value(driver));
+    }
+    json_t* host = json_object_get(database, "host");
+    if (json_is_string(host)) {
+      set_override_string(&config_file_overrides.db_host, json_string_value(host));
+    }
+    json_t* port = json_object_get(database, "port");
+    if (json_is_integer(port)) {
+      char tmp[32];
+      snprintf(tmp, sizeof(tmp), "%lld", (long long)json_integer_value(port));
+      set_override_string(&config_file_overrides.db_port, tmp);
+    } else if (json_is_string(port)) {
+      set_override_string(&config_file_overrides.db_port, json_string_value(port));
+    }
+    json_t* name = json_object_get(database, "name");
+    if (json_is_string(name)) {
+      set_override_string(&config_file_overrides.db_name, json_string_value(name));
+    }
+    json_t* username = json_object_get(database, "username");
+    if (json_is_string(username)) {
+      set_override_string(&config_file_overrides.db_user, json_string_value(username));
+    }
+    json_t* password = json_object_get(database, "password");
+    if (json_is_string(password)) {
+      set_override_string(&config_file_overrides.db_password, json_string_value(password));
+    }
+    json_t* sqlite = json_object_get(database, "sqlite");
+    if (json_is_object(sqlite)) {
+      json_t* filename = json_object_get(sqlite, "filename");
+      if (json_is_string(filename)) {
+        set_override_string(&config_file_overrides.sqlite_filename, json_string_value(filename));
+      }
+    }
+  }
+
+  json_t* tables = json_object_get(root, "tables");
+  if (json_is_array(tables) && json_array_size(tables) > 0) {
+    char* spec = build_tables_override(tables);
+    if (spec) {
+      set_override_owned(&config_file_overrides.table_tables, spec);
+    }
+  }
+
+  json_decref(root);
+  return 1;
+}
+
+static void clear_config_file_overrides(void) {
+  set_override_owned(&config_file_overrides.db_driver, NULL);
+  set_override_owned(&config_file_overrides.db_host, NULL);
+  set_override_owned(&config_file_overrides.db_port, NULL);
+  set_override_owned(&config_file_overrides.db_name, NULL);
+  set_override_owned(&config_file_overrides.db_user, NULL);
+  set_override_owned(&config_file_overrides.db_password, NULL);
+  set_override_owned(&config_file_overrides.sqlite_filename, NULL);
+  set_override_owned(&config_file_overrides.table_tables, NULL);
+}
+
+static const char* config_file_default_for(const char* name) {
+  if (!name) return NULL;
+  if (strcmp(name, "MELIAN_DB_DRIVER") == 0) return config_file_overrides.db_driver;
+  if (strcmp(name, "MELIAN_DB_HOST") == 0) return config_file_overrides.db_host;
+  if (strcmp(name, "MELIAN_DB_PORT") == 0) return config_file_overrides.db_port;
+  if (strcmp(name, "MELIAN_DB_NAME") == 0) return config_file_overrides.db_name;
+  if (strcmp(name, "MELIAN_DB_USER") == 0) return config_file_overrides.db_user;
+  if (strcmp(name, "MELIAN_DB_PASSWORD") == 0) return config_file_overrides.db_password;
+  if (strcmp(name, "MELIAN_SQLITE_FILENAME") == 0) return config_file_overrides.sqlite_filename;
+  if (strcmp(name, "MELIAN_TABLE_TABLES") == 0) return config_file_overrides.table_tables;
+  return NULL;
+}
+
+static void set_override_string(char** field, const char* value) {
+  if (!value) {
+    set_override_owned(field, NULL);
+    return;
+  }
+  char* copy = strdup(value);
+  if (!copy) return;
+  set_override_owned(field, copy);
+}
+
+static void set_override_owned(char** field, char* value) {
+  if (*field) free(*field);
+  *field = value;
+}
+
+static int sb_append(char** buf, size_t* len, size_t* cap, const char* fmt, ...) {
+  va_list ap;
+  va_start(ap, fmt);
+  int needed = vsnprintf(NULL, 0, fmt, ap);
+  va_end(ap);
+  if (needed < 0) return 0;
+  size_t required = *len + (size_t)needed + 1;
+  if (required > *cap) {
+    size_t newcap = *cap ? *cap : 64;
+    while (newcap < required) {
+      newcap *= 2;
+    }
+    char* tmp = realloc(*buf, newcap);
+    if (!tmp) return 0;
+    *buf = tmp;
+    *cap = newcap;
+  }
+  va_start(ap, fmt);
+  vsnprintf(*buf + *len, *cap - *len, fmt, ap);
+  va_end(ap);
+  *len += (size_t)needed;
+  return 1;
+}
+
+static char* build_tables_override(json_t* tables) {
+  char* buf = NULL;
+  size_t len = 0;
+  size_t cap = 0;
+  size_t count = json_array_size(tables);
+  for (size_t i = 0; i < count; ++i) {
+    json_t* table = json_array_get(tables, i);
+    if (!json_is_object(table)) continue;
+    json_t* name_val = json_object_get(table, "name");
+    json_t* id_val = json_object_get(table, "id");
+    json_t* indexes = json_object_get(table, "indexes");
+    if (!json_is_string(name_val) || !json_is_integer(id_val) ||
+        !json_is_array(indexes) || json_array_size(indexes) == 0) {
+      continue;
+    }
+    const char* name = json_string_value(name_val);
+    unsigned id = (unsigned)json_integer_value(id_val);
+    if (len) {
+      if (!sb_append(&buf, &len, &cap, ",")) goto fail;
+    }
+    if (!sb_append(&buf, &len, &cap, "%s#%u", name, id)) goto fail;
+
+    json_t* period_val = json_object_get(table, "period");
+    if (json_is_integer(period_val)) {
+      unsigned period = (unsigned)json_integer_value(period_val);
+      if (period && !sb_append(&buf, &len, &cap, "|%u", period)) goto fail;
+    }
+
+    if (!sb_append(&buf, &len, &cap, "|")) goto fail;
+    size_t idx_count = json_array_size(indexes);
+    unsigned wrote_index = 0;
+    for (size_t k = 0; k < idx_count; ++k) {
+      json_t* idx = json_array_get(indexes, k);
+      if (!json_is_object(idx)) continue;
+      json_t* col_val = json_object_get(idx, "column");
+      json_t* idx_id_val = json_object_get(idx, "id");
+      if (!json_is_string(col_val) || !json_is_integer(idx_id_val)) continue;
+      const char* column = json_string_value(col_val);
+      unsigned idx_id = (unsigned)json_integer_value(idx_id_val);
+      const char* type_raw = NULL;
+      json_t* type_val = json_object_get(idx, "type");
+      if (json_is_string(type_val)) type_raw = json_string_value(type_val);
+      if (wrote_index) {
+        if (!sb_append(&buf, &len, &cap, ";")) goto fail;
+      }
+      if (!sb_append(&buf, &len, &cap, "%s#%u", column, idx_id)) goto fail;
+      char type_buf[32];
+      const char* type = "int";
+      if (type_raw && type_raw[0]) {
+        size_t tlen = strlen(type_raw);
+        if (tlen >= sizeof(type_buf)) tlen = sizeof(type_buf) - 1;
+        for (size_t c = 0; c < tlen; ++c) {
+          type_buf[c] = (char)tolower((unsigned char)type_raw[c]);
+        }
+        type_buf[tlen] = '\0';
+        type = type_buf;
+      }
+      if (!sb_append(&buf, &len, &cap, ":%s", type)) goto fail;
+      wrote_index = 1;
+    }
+    if (!wrote_index) {
+      LOG_WARN("Table %s missing indexes in config file", name);
+    }
+  }
+  if (!buf) return NULL;
+  buf[len] = '\0';
+  return buf;
+
+fail:
+  if (buf) free(buf);
+  return NULL;
 }
