@@ -154,7 +154,6 @@ The benchmark script first validates that a few sample IDs return identical JSON
 * `hash.c` High-speed xxHash + open addressing
 * `arena.c` Continuous memory region management
 * `cron.c` Background refresh thread
-* `json.c` Minimal JSON builder
 * `log.c` Colorized structured logging
 * `protocol.h` Binary protocol definition
 * `config.c` Environment configuration parser

@@ -17,7 +17,6 @@ AM_CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -g
 melian_server_SOURCES = \
 	server/util.c \
 	server/log.c \
-	server/json.c \
 	server/arena.c \
 	server/xxhash.c \
 	server/hash.c \
@@ -35,6 +34,7 @@ melian_server_LDADD = \
 	$(SQLITE_LIBS) \
 	$(POSTGRESQL_LIBS) \
 	$(PTHREAD_LIBS) \
+	$(JANSSON_LIBS) \
 	$(LIBM)
 
 melian_client_SOURCES = \

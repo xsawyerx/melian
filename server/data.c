@@ -3,13 +3,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <jansson.h>
 #include "util.h"
 #include "log.h"
 #include "arena.h"
 #include "hash.h"
 #include "config.h"
 #include "db.h"
-#include "json.h"
 #include "data.h"
 
 enum {
@@ -243,38 +243,134 @@ const char* data_schema_json(Data* data, unsigned* len) {
 }
 
 static void data_refresh_schema(Data* data) {
-  char* p = data->schema.json;
-  unsigned c = sizeof(data->schema.json);
-  unsigned l = 0;
-  l = json_obj_beg(0, 0, p, c, l);
-  {
-    unsigned N = 0;
-    l = json_arr_beg(N++, "tables", p, c, l);
-    for (unsigned t = 0; t < data->table_count; ++t) {
-      Table* table = data->tables[t];
-      unsigned T = 0;
-      l = json_obj_beg(t, 0, p, c, l);
-      l = json_string(T++, "name", table->name, p, c, l);
-      l = json_integer(T++, "id", table->table_id, p, c, l);
-      l = json_integer(T++, "period", table->period, p, c, l);
-      l = json_arr_beg(T++, "indexes", p, c, l);
-      for (unsigned idx = 0; idx < table->index_count; ++idx) {
-        TableIndex* index = &table->indexes[idx];
-        unsigned I = 0;
-        l = json_obj_beg(idx, 0, p, c, l);
-        l = json_integer(I++, "id", index->id, p, c, l);
-        l = json_string(I++, "column", index->column, p, c, l);
-        l = json_string(I++, "type", index_type_name(index->type), p, c, l);
-        l = json_obj_end(p, c, l);
-      }
-      l = json_arr_end(p, c, l);
-      l = json_obj_end(p, c, l);
-    }
-    l = json_arr_end(p, c, l);
+  json_t* root = NULL;
+  char* dump = NULL;
+  unsigned success = 0;
+
+  data->schema.len = 0;
+  data->schema.json[0] = '\0';
+
+  root = json_object();
+  if (!root) {
+    LOG_WARN("Failed to allocate schema root JSON object");
+    goto done;
   }
-  l = json_obj_end(p, c, l);
-  data->schema.len = l;
-  LOG_INFO("Schema JSON built with %u tables, len=%u", data->table_count, data->schema.len);
+
+  json_t* tables = json_array();
+  if (!tables || json_object_set_new(root, "tables", tables) < 0) {
+    LOG_WARN("Failed to allocate schema tables array");
+    goto done;
+  }
+
+  for (unsigned t = 0; t < data->table_count; ++t) {
+    Table* table = data->tables[t];
+    json_t* table_obj = json_object();
+    if (!table_obj) {
+      LOG_WARN("Failed to allocate schema table object");
+      goto done;
+    }
+
+    json_t* table_name = json_string(table->name);
+    if (!table_name || json_object_set_new(table_obj, "name", table_name) < 0) {
+      json_decref(table_obj);
+      LOG_WARN("Failed to add table name for %s", table->name);
+      goto done;
+    }
+
+    json_t* table_id = json_integer(table->table_id);
+    if (!table_id || json_object_set_new(table_obj, "id", table_id) < 0) {
+      json_decref(table_obj);
+      LOG_WARN("Failed to add table id for %s", table->name);
+      goto done;
+    }
+
+    json_t* table_period = json_integer(table->period);
+    if (!table_period || json_object_set_new(table_obj, "period", table_period) < 0) {
+      json_decref(table_obj);
+      LOG_WARN("Failed to add table period for %s", table->name);
+      goto done;
+    }
+
+    json_t* indexes = json_array();
+    if (!indexes || json_object_set_new(table_obj, "indexes", indexes) < 0) {
+      json_decref(table_obj);
+      LOG_WARN("Failed to add indexes array for table %s", table->name);
+      goto done;
+    }
+
+    for (unsigned idx = 0; idx < table->index_count; ++idx) {
+      TableIndex* index = &table->indexes[idx];
+      json_t* index_obj = json_object();
+      if (!index_obj) {
+        json_decref(table_obj);
+        LOG_WARN("Failed to allocate schema index object");
+        goto done;
+      }
+
+      json_t* index_id = json_integer(index->id);
+      if (!index_id || json_object_set_new(index_obj, "id", index_id) < 0) {
+        json_decref(index_obj);
+        json_decref(table_obj);
+        LOG_WARN("Failed to add index id %u for table %s", index->id, table->name);
+        goto done;
+      }
+
+      json_t* index_column = json_string(index->column);
+      if (!index_column || json_object_set_new(index_obj, "column", index_column) < 0) {
+        json_decref(index_obj);
+        json_decref(table_obj);
+        LOG_WARN("Failed to add index column %s for table %s", index->column, table->name);
+        goto done;
+      }
+
+      json_t* index_type = json_string(index_type_name(index->type));
+      if (!index_type || json_object_set_new(index_obj, "type", index_type) < 0) {
+        json_decref(index_obj);
+        json_decref(table_obj);
+        LOG_WARN("Failed to add index type for table %s", table->name);
+        goto done;
+      }
+
+      if (json_array_append_new(indexes, index_obj) < 0) {
+        json_decref(table_obj);
+        LOG_WARN("Failed to append index %u for table %s", index->id, table->name);
+        goto done;
+      }
+    }
+
+    if (json_array_append_new(tables, table_obj) < 0) {
+      LOG_WARN("Failed to append schema for table %s", table->name);
+      goto done;
+    }
+  }
+
+  dump = json_dumps(root, JSON_COMPACT | JSON_ENSURE_ASCII);
+  if (!dump) {
+    LOG_WARN("Failed to serialize schema JSON");
+    goto done;
+  }
+
+  size_t dump_len = strlen(dump);
+  if (dump_len >= sizeof(data->schema.json)) {
+    LOG_WARN("Schema JSON truncated from %zu bytes to %zu", dump_len,
+             sizeof(data->schema.json) - 1);
+    dump_len = sizeof(data->schema.json) - 1;
+  }
+  memcpy(data->schema.json, dump, dump_len);
+  data->schema.json[dump_len] = '\0';
+  data->schema.len = (unsigned)dump_len;
+  success = 1;
+
+done:
+  if (dump) free(dump);
+  if (root) json_decref(root);
+  if (success) {
+    LOG_INFO("Schema JSON built with %u tables, len=%u", data->table_count, data->schema.len);
+  } else {
+    data->schema.len = 0;
+    data->schema.json[0] = '\0';
+    LOG_WARN("Schema JSON build failed");
+  }
 }
 
 static const char* index_type_name(ConfigIndexType type) {
