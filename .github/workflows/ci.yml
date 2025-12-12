@@ -100,14 +100,14 @@ jobs:
           trap 'cat server.log; kill "$server_pid" 2>/dev/null || true' ERR
           timeout 30 bash -c 'until [ -S /tmp/melian.sock ]; do sleep 1; done'
           pushd clients/perl >/dev/null
-          echo -n "\nPerl:"; eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib) && prove -lr t/
+          echo -e "\nPerl:"; eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib) && prove -lr t/
           popd >/dev/null
           pushd clients/python >/dev/null
-          echo -n "\nPython:"; python3 -m pytest -q
+          echo -e "\nPython:"; python3 -m pytest -q
           popd >/dev/null
           pushd clients/php/Melian >/dev/null
-          echo -n "\nPHP:"; ./vendor/bin/phpunit
+          echo -e "\nPHP:"; ./vendor/bin/phpunit
           popd >/dev/null
           pushd clients/js >/dev/null
-          echo -n "\nNode.js:"; npm test
+          echo -e "\nNode.js:"; npm test
           popd >/dev/null
