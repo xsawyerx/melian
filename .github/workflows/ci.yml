@@ -70,5 +70,5 @@ jobs:
           trap 'cat server.log; kill "$server_pid" 2>/dev/null || true' ERR
           timeout 30 bash -c 'until [ -S /tmp/melian.sock ]; do sleep 1; done'
           pushd clients/perl >/dev/null
-          perl -Ilib t/melian_live.t
+          prove -lrv t/
           popd >/dev/null
