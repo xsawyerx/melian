@@ -148,7 +148,8 @@ unsigned server_listen(Server* server) {
     struct sockaddr_un sun;
     memset(&sun, 0, sizeof(sun));
     sun.sun_family = AF_UNIX;
-    strncpy(sun.sun_path, path, sizeof(sun.sun_path)-1);
+    /* TODO: Check for truncation: if (... >= (int)sizeof(sun.sun_path)) {...} */
+    snprintf(sun.sun_path, sizeof(sun.sun_path), "%s", path);
     server->listener = evconnlistener_new_bind(server->base, on_accept, server,
                                                LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE, -1,
                                                (struct sockaddr*)&sun, sizeof(sun));

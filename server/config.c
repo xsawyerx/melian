@@ -235,7 +235,7 @@ static unsigned parse_table_specs(Config* config, const char* raw) {
           break;
         }
         used_ids[spec->id] = 1;
-        strncpy(spec->name, value, sizeof(spec->name)-1);
+        snprintf(spec->name, sizeof(spec->name), "%s", value);
       } else if (section == 1) {
         unsigned maybe = atoi(value);
         if (!maybe) {
@@ -276,7 +276,7 @@ static unsigned parse_table_specs(Config* config, const char* raw) {
           }
           used_index_ids[column_id] = 1;
           ispec->id = column_id;
-          strncpy(ispec->column, trim(idx_part), sizeof(ispec->column)-1);
+          snprintf(ispec->column, sizeof(ispec->column), "%s", trim(idx_part));
           if (!ispec->column[0]) {
             LOG_WARN("Empty column name in index specification for table %s", spec->name);
             used_index_ids[column_id] = 0;
