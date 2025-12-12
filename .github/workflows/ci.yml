@@ -33,10 +33,14 @@ jobs:
             autoconf \
             build-essential \
             cpanminus \
+            composer \
             libevent-dev \
             libjansson-dev \
             libsqlite3-dev \
             perl \
+            php-cli \
+            php-mbstring \
+            php-xml \
             python3 \
             python3-pip \
             pkg-config \
@@ -78,12 +82,16 @@ jobs:
         working-directory: clients/js
         run: npm ci
 
+      - name: Install PHP dependencies
+        working-directory: clients/php/Melian
+        run: composer install --no-interaction --no-progress --prefer-dist
+
       - name: Prepare SQLite database
         run: |
           rm -f "$MELIAN_SQLITE_FILENAME"
           gunzip -c .github/workflows/assets/melian-sqlite.sql.gz | sqlite3 "$MELIAN_SQLITE_FILENAME"
 
-      - name: Run client tests (Perl, Python, Node.js)
+      - name: Run client tests (Perl, Python, PHP, Node.js)
         run: |
           set -euo pipefail
           ./melian-server >server.log 2>&1 &
@@ -92,11 +100,14 @@ jobs:
           trap 'cat server.log; kill "$server_pid" 2>/dev/null || true' ERR
           timeout 30 bash -c 'until [ -S /tmp/melian.sock ]; do sleep 1; done'
           pushd clients/perl >/dev/null
-          echo "Perl:"; eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib) && prove -lr t/
+          echo -n "\nPerl:"; eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib) && prove -lr t/
           popd >/dev/null
           pushd clients/python >/dev/null
-          echo "Python:"; python3 -m pytest -q
+          echo -n "\nPython:"; python3 -m pytest -q
+          popd >/dev/null
+          pushd clients/php/Melian >/dev/null
+          echo -n "\nPHP:"; ./vendor/bin/phpunit
           popd >/dev/null
           pushd clients/js >/dev/null
-          echo "Node.js:"; npm test
+          echo -n "\nNode.js:"; npm test
           popd >/dev/null
