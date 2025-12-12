@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  sqlite-perl:
+    runs-on: ubuntu-latest
+    env:
+      MELIAN_TABLE_TABLES: 'table1#0|60|id#0:int,table2#1|60|id#0:int;hostname#1:string'
+      MELIAN_DB_DRIVER: sqlite
+      MELIAN_SQLITE_FILENAME: ${{ github.workspace }}/melian_sqlite.db
+      MELIAN_SOCKET_PATH: /tmp/melian.sock
+      MELIAN_LIVE_TEST: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            pkg-config \
+            libevent-dev \
+            libjansson-dev \
+            libsqlite3-dev \
+            sqlite3 \
+            cpanminus \
+            perl
+
+      - name: Configure (SQLite only)
+        run: ./configure --with-sqlite3=/usr
+
+      - name: Build
+        run: make -j"$(nproc)"
+
+      - name: Install Perl dependencies
+        working-directory: clients/perl
+        run: cpanm --quiet --notest --installdeps .
+
+      - name: Prepare SQLite database
+        run: |
+          rm -f "$MELIAN_SQLITE_FILENAME"
+          gunzip .github/workflows/assets/melian-sqlite.sql.gz
+          sqlite3 "$MELIAN_SQLITE_FILENAME" < .github/workflows/assets/melian-sqlite.sql
+
+      - name: Run Perl client live tests
+        run: |
+          set -euo pipefail
+          ./melian-server >server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          trap 'cat server.log; kill "$server_pid" 2>/dev/null || true' ERR
+          timeout 30 bash -c 'until [ -S /tmp/melian.sock ]; do sleep 1; done'
+          pushd clients/perl >/dev/null
+          perl -Ilib t/melian_live.t
+          popd >/dev/null
