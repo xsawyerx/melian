@@ -59,7 +59,7 @@ jobs:
 
       - name: Install Perl dependencies
         working-directory: clients/perl
-        run: cpanm --quiet --notest --installdeps .
+        run: cpanm -l ~/perl5 --quiet --notest --installdeps .
 
       - name: Install Python dependencies
         working-directory: clients/python
