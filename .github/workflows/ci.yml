@@ -116,6 +116,7 @@ jobs:
           run_client_suite "Python" bash -c 'set -e; cd clients/python; python3 -m pytest -q'
           run_client_suite "PHP" bash -c 'set -e; cd clients/php/Melian; ./vendor/bin/phpunit'
           run_client_suite "Node.js" bash -c 'set -e; cd clients/js; npm test'
+          echo "::group::Benchmarks"
           echo "===== BENCHMARKS ====="
           echo "--- query table 1 ---"
           melian_output_u=$(./melian-client -U)
@@ -138,4 +139,5 @@ jobs:
             echo "[bench -H] expected '10000 good' in output"
             rc=1
           fi
+          echo "::endgroup::"
           exit $rc
