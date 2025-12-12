@@ -99,25 +99,28 @@ jobs:
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           trap 'cat server.log; kill "$server_pid" 2>/dev/null || true' ERR
           timeout 30 bash -c 'until [ -S /tmp/melian.sock ]; do sleep 1; done'
-          pushd clients/perl >/dev/null
-          echo "===== TESTS ====="
-          echo "--- Perl ---"
-          eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib) && prove -lr t/
-          popd >/dev/null
-          pushd clients/python >/dev/null
-          echo -e "\n--- Python ---"; python3 -m pytest -q
-          popd >/dev/null
-          pushd clients/php/Melian >/dev/null
-          echo -e "\n--- PHP ---"; ./vendor/bin/phpunit
-          popd >/dev/null
-          pushd clients/js >/dev/null
-          echo -e "\n--- nNode.js ---"; npm test
-          popd >/dev/null
-          echo -e "\n===== BENCHMARKS ====="
+          rc=0
+          run_client_suite() {
+            local label=$1
+            shift
+            echo "::group::${label} client tests"
+            if "$@"; then
+              echo "[${label}] tests passed"
+            else
+              echo "[${label}] tests failed"
+              rc=1
+            fi
+            echo "::endgroup::"
+          }
+          run_client_suite "Perl" bash -c 'set -e; cd clients/perl; eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib); prove -lr t/'
+          run_client_suite "Python" bash -c 'set -e; cd clients/python; python3 -m pytest -q'
+          run_client_suite "PHP" bash -c 'set -e; cd clients/php/Melian; ./vendor/bin/phpunit'
+          run_client_suite "Node.js" bash -c 'set -e; cd clients/js; npm test'
+          echo "===== BENCHMARKS ====="
           echo "--- query table 1 ---"
           ./melian-client -U
-          echo -e "\n--- query table 2 (integer) ---"
+          echo "--- query table 2 (integer) ---"
           ./melian-client -C
-          echo -e "\n--- query table 2 (string) ---"
+          echo "--- query table 2 (string) ---"
           ./melian-client -H
-
+          exit $rc
