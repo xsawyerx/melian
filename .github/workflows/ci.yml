@@ -59,8 +59,8 @@ jobs:
       - name: Prepare SQLite database
         run: |
           rm -f "$MELIAN_SQLITE_FILENAME"
-          gunzip .github/workflows/assets/melian-sqlite.sql.gz
-          sqlite3 "$MELIAN_SQLITE_FILENAME" < .github/workflows/assets/melian-sqlite.sql
+          gunzip ${{ github.workspace }}/.github/workflows/assets/melian-sqlite.sql.gz
+          sqlite3 "$MELIAN_SQLITE_FILENAME" < ${{ github.workspace }}/.github/workflows/assets/melian-sqlite.sql
 
       - name: Run Perl client live tests
         run: |
