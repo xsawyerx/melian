@@ -19,6 +19,13 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: clients/js/package-lock.json
+
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -67,12 +74,16 @@ jobs:
           python3 -m pip install --upgrade pip
           python3 -m pip install -r requirements.txt
 
+      - name: Install Node.js dependencies
+        working-directory: clients/js
+        run: npm ci
+
       - name: Prepare SQLite database
         run: |
           rm -f "$MELIAN_SQLITE_FILENAME"
           gunzip -c .github/workflows/assets/melian-sqlite.sql.gz | sqlite3 "$MELIAN_SQLITE_FILENAME"
 
-      - name: Run client tests (Perl, Python)
+      - name: Run client tests (Perl, Python, Node.js)
         run: |
           set -euo pipefail
           ./melian-server >server.log 2>&1 &
@@ -85,4 +96,7 @@ jobs:
           popd >/dev/null
           pushd clients/python >/dev/null
           echo "Python:"; python3 -m pytest -q
+          popd >/dev/null
+          pushd clients/js >/dev/null
+          echo "Node.js:"; npm test
           popd >/dev/null
