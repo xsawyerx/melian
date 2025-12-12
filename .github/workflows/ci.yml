@@ -118,9 +118,24 @@ jobs:
           run_client_suite "Node.js" bash -c 'set -e; cd clients/js; npm test'
           echo "===== BENCHMARKS ====="
           echo "--- query table 1 ---"
-          ./melian-client -U
+          melian_output_u=$(./melian-client -U)
+          echo "$melian_output_u"
+          if ! grep -q "1000 good" <<<"$melian_output_u"; then
+            echo "[bench -U] expected '1000 good' in output"
+            rc=1
+          fi
           echo "--- query table 2 (integer) ---"
-          ./melian-client -C
+          melian_output_c=$(./melian-client -C)
+          echo "$melian_output_c"
+          if ! grep -q "10000 good" <<<"$melian_output_c"; then
+            echo "[bench -C] expected '10000 good' in output"
+            rc=1
+          fi
           echo "--- query table 2 (string) ---"
-          ./melian-client -H
+          melian_output_h=$(./melian-client -H)
+          echo "$melian_output_h"
+          if ! grep -q "10000 good" <<<"$melian_output_h"; then
+            echo "[bench -H] expected '10000 good' in output"
+            rc=1
+          fi
           exit $rc
