@@ -174,7 +174,7 @@ static json_t* json_table(Table* table) {
     if (hashes) json_decref(hashes);
     return NULL;
   }
-  json_t* obj = json_pack("{s:s,s:i,s:i,s:i,s:i,s:O,s:O,s:O}",
+  json_t* obj = json_pack("{s:s,s:i,s:i,s:i,s:i,s:i,s:O,s:O,s:O}",
                           "name", table_name(table),
                           "id", (int)table->table_id,
                           "period", (int)table->period,
