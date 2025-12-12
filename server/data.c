@@ -32,15 +32,15 @@ Table* table_build(const ConfigTableSpec* spec, unsigned arena_cap) {
     }
 
     table->table_id = spec->id;
-    strncpy(table->name, spec->name, sizeof(table->name)-1);
+    snprintf(table->name, sizeof(table->name), "%s", spec->name);
     table->period = spec->period ? spec->period : DATA_REFRESH_PERIOD;
-    strncpy(table->select_stmt, spec->select_stmt, sizeof(table->select_stmt) - 1);
+    snprintf(table->select_stmt, sizeof(table->select_stmt), "%s", spec->select_stmt);
     table->index_count = spec->index_count;
     for (unsigned idx = 0; idx < spec->index_count; ++idx) {
       table->indexes[idx].id = spec->indexes[idx].id;
       table->indexes[idx].type = spec->indexes[idx].type;
-      strncpy(table->indexes[idx].column, spec->indexes[idx].column,
-              sizeof(table->indexes[idx].column)-1);
+      snprintf(table->indexes[idx].column, sizeof(table->indexes[idx].column),
+               "%s", spec->indexes[idx].column);
     }
 
     for (unsigned b = 0; b < 2; ++b) {
