@@ -72,7 +72,7 @@ jobs:
           rm -f "$MELIAN_SQLITE_FILENAME"
           gunzip -c .github/workflows/assets/melian-sqlite.sql.gz | sqlite3 "$MELIAN_SQLITE_FILENAME"
 
-      - name: Run Perl client live tests
+      - name: Run client tests (Perl, Python)
         run: |
           set -euo pipefail
           ./melian-server >server.log 2>&1 &
@@ -81,8 +81,8 @@ jobs:
           trap 'cat server.log; kill "$server_pid" 2>/dev/null || true' ERR
           timeout 30 bash -c 'until [ -S /tmp/melian.sock ]; do sleep 1; done'
           pushd clients/perl >/dev/null
-          eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib) && prove -lrv t/
+          echo "Perl:"; eval $(perl -I ~/perl5/lib/perl5/ -Mlocal::lib) && prove -lr t/
           popd >/dev/null
           pushd clients/python >/dev/null
-          python3 -m pytest -q
+          echo "Python:"; python3 -m pytest -q
           popd >/dev/null
