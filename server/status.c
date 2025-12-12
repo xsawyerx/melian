@@ -17,15 +17,14 @@
 static unsigned get_uptime(Status* status);
 static const char* safe_string(const char* value);
 static json_t* json_epoch_object(unsigned epoch);
+static json_t* json_server_info(Status* status);
+static json_t* json_software_info(Status* status, const char* driver_key);
+static json_t* json_config_info(Config* config, const char* driver_key);
+static json_t* json_process_info(Status* status);
 static json_t* json_table(Table* table);
 static json_t* json_table_arena(Arena* arena, unsigned rows);
 static json_t* json_table_hashes(Table* table, struct TableSlot* slot);
 static json_t* json_table_hash(const char* tname, Hash* hash, const char* iname);
-static int json_object_set_new_take(json_t* obj, const char* key, json_t* value);
-static int json_object_set_string(json_t* obj, const char* key, const char* value);
-static int json_object_set_uint(json_t* obj, const char* key, unsigned value);
-static int json_object_set_real(json_t* obj, const char* key, double value);
-static int json_object_set_bool(json_t* obj, const char* key, unsigned value);
 
 Status* status_build(struct event_base *base, DB* db) {
   Status* status = 0;
@@ -84,6 +83,11 @@ void status_log(Status* status) {
 
 void status_json(Status* status, Config* config, Data* data) {
   json_t* root = NULL;
+  json_t* tables_obj = NULL;
+  json_t* server_obj = NULL;
+  json_t* software_obj = NULL;
+  json_t* config_obj = NULL;
+  json_t* process_obj = NULL;
   char* dump = NULL;
   unsigned success = 0;
   const char* driver_key = config_db_driver_name(config->db.driver);
@@ -91,201 +95,34 @@ void status_json(Status* status, Config* config, Data* data) {
   status->json.jlen = 0;
   status->json.jbuf[0] = '\0';
 
-  root = json_object();
-  if (!root) {
-    LOG_WARN("Failed to allocate status root JSON object");
-    goto done;
-  }
+  server_obj = json_server_info(status);
+  software_obj = json_software_info(status, driver_key);
+  config_obj = json_config_info(config, driver_key);
+  process_obj = json_process_info(status);
+  if (!server_obj || !software_obj || !config_obj || !process_obj) goto done;
 
-  json_t* server_obj = json_object();
-  if (!server_obj) goto done;
-  if (json_object_set_string(server_obj, "host", status->server.host) < 0 ||
-      json_object_set_string(server_obj, "system", status->server.system) < 0 ||
-      json_object_set_string(server_obj, "machine", status->server.machine) < 0 ||
-      json_object_set_string(server_obj, "release", status->server.release) < 0) {
-    json_decref(server_obj);
-    goto done;
-  }
-  if (json_object_set_new_take(root, "server", server_obj) < 0) goto done;
-
-  json_t* software_obj = json_object();
-  if (!software_obj) goto done;
-
-  json_t* libevent_obj = json_object();
-  if (!libevent_obj) {
-    json_decref(software_obj);
-    goto done;
-  }
-  if (json_object_set_string(libevent_obj, "version", status->libevent.version) < 0 ||
-      json_object_set_string(libevent_obj, "method", status->libevent.method) < 0) {
-    json_decref(libevent_obj);
-    json_decref(software_obj);
-    goto done;
-  }
-  if (json_object_set_new_take(software_obj, "libevent", libevent_obj) < 0) {
-    json_decref(software_obj);
-    goto done;
-  }
-
-  json_t* driver_obj = json_object();
-  if (!driver_obj) {
-    json_decref(software_obj);
-    goto done;
-  }
-
-  json_t* client_obj = json_object();
-  if (!client_obj) {
-    json_decref(driver_obj);
-    json_decref(software_obj);
-    goto done;
-  }
-  if (json_object_set_string(client_obj, "version", safe_string(status->db->client_version)) < 0) {
-    json_decref(client_obj);
-    json_decref(driver_obj);
-    json_decref(software_obj);
-    goto done;
-  }
-  if (json_object_set_new_take(driver_obj, "client", client_obj) < 0) {
-    json_decref(driver_obj);
-    json_decref(software_obj);
-    goto done;
-  }
-
-  json_t* server_version_obj = json_object();
-  if (!server_version_obj) {
-    json_decref(driver_obj);
-    json_decref(software_obj);
-    goto done;
-  }
-  if (json_object_set_string(server_version_obj, "version", safe_string(status->db->server_version)) < 0) {
-    json_decref(server_version_obj);
-    json_decref(driver_obj);
-    json_decref(software_obj);
-    goto done;
-  }
-  if (json_object_set_new_take(driver_obj, "server", server_version_obj) < 0) {
-    json_decref(driver_obj);
-    json_decref(software_obj);
-    goto done;
-  }
-
-  if (json_object_set_new_take(software_obj, driver_key, driver_obj) < 0) {
-    json_decref(software_obj);
-    goto done;
-  }
-  if (json_object_set_new_take(root, "software", software_obj) < 0) goto done;
-
-  json_t* config_obj = json_object();
-  if (!config_obj) goto done;
-
-  json_t* config_driver_obj = json_object();
-  if (!config_driver_obj) {
-    json_decref(config_obj);
-    goto done;
-  }
-
-  if (config->db.driver == CONFIG_DB_DRIVER_MYSQL ||
-      config->db.driver == CONFIG_DB_DRIVER_POSTGRESQL) {
-    if (json_object_set_string(config_driver_obj, "host", config->db.host) < 0 ||
-        json_object_set_uint(config_driver_obj, "port", config->db.port) < 0 ||
-        json_object_set_string(config_driver_obj, "database", config->db.database) < 0 ||
-        json_object_set_string(config_driver_obj, "user", config->db.user) < 0) {
-      json_decref(config_driver_obj);
-      json_decref(config_obj);
-      goto done;
-    }
-  } else if (config->db.driver == CONFIG_DB_DRIVER_SQLITE) {
-    if (json_object_set_string(config_driver_obj, "filename",
-                               safe_string(config->db.sqlite_filename)) < 0) {
-      json_decref(config_driver_obj);
-      json_decref(config_obj);
-      goto done;
-    }
-  }
-
-  if (json_object_set_new_take(config_obj, driver_key, config_driver_obj) < 0) {
-    json_decref(config_obj);
-    goto done;
-  }
-
-  json_t* socket_obj = json_object();
-  if (!socket_obj) {
-    json_decref(config_obj);
-    goto done;
-  }
-  if (json_object_set_string(socket_obj, "host", config->socket.host) < 0 ||
-      json_object_set_uint(socket_obj, "port", config->socket.port) < 0 ||
-      json_object_set_string(socket_obj, "path", config->socket.path) < 0) {
-    json_decref(socket_obj);
-    json_decref(config_obj);
-    goto done;
-  }
-  if (json_object_set_new_take(config_obj, "socket", socket_obj) < 0) {
-    json_decref(config_obj);
-    goto done;
-  }
-
-  json_t* table_obj = json_object();
-  if (!table_obj) {
-    json_decref(config_obj);
-    goto done;
-  }
-  if (json_object_set_uint(table_obj, "period", config->table.period) < 0 ||
-      json_object_set_string(table_obj, "schema", safe_string(config->table.schema)) < 0 ||
-      json_object_set_bool(table_obj, "strip_null", config->table.strip_null) < 0) {
-    json_decref(table_obj);
-    json_decref(config_obj);
-    goto done;
-  }
-  if (json_object_set_new_take(config_obj, "table", table_obj) < 0) {
-    json_decref(config_obj);
-    goto done;
-  }
-
-  json_t* server_cfg_obj = json_object();
-  if (!server_cfg_obj) {
-    json_decref(config_obj);
-    goto done;
-  }
-  if (json_object_set_bool(server_cfg_obj, "show_msgs", config->server.show_msgs) < 0) {
-    json_decref(server_cfg_obj);
-    json_decref(config_obj);
-    goto done;
-  }
-  if (json_object_set_new_take(config_obj, "server", server_cfg_obj) < 0) {
-    json_decref(config_obj);
-    goto done;
-  }
-
-  if (json_object_set_new_take(root, "config", config_obj) < 0) goto done;
-
-  json_t* process_obj = json_object();
-  if (!process_obj) goto done;
-  if (json_object_set_uint(process_obj, "uptime", get_uptime(status)) < 0 ||
-      json_object_set_new_take(process_obj, "birth", json_epoch_object(status->process.birth)) < 0) {
-    json_decref(process_obj);
-    goto done;
-  }
-  if (json_object_set_new_take(root, "process", process_obj) < 0) goto done;
-
-  json_t* tables_obj = json_object();
+  tables_obj = json_object();
   if (!tables_obj) goto done;
   for (unsigned t = 0; t < data->table_count; ++t) {
     Table* table = data->tables[t];
     if (!table) continue;
     json_t* table_json = json_table(table);
-    if (!table_json) {
-      json_decref(tables_obj);
-      goto done;
-    }
-    if (json_object_set_new_take(tables_obj, table_name(table), table_json) < 0) {
-      json_decref(tables_obj);
+    if (!table_json) goto done;
+    if (json_object_set_new(tables_obj, table_name(table), table_json) < 0) {
+      json_decref(table_json);
       goto done;
     }
   }
-  if (json_object_set_new_take(root, "tables", tables_obj) < 0) {
-    goto done;
-  }
+
+  root = json_pack("{s:O,s:O,s:O,s:O,s:O}",
+                   "server", server_obj,
+                   "software", software_obj,
+                   "config", config_obj,
+                   "process", process_obj,
+                   "tables", tables_obj);
+  if (!root) goto done;
+  server_obj = software_obj = config_obj = process_obj = NULL;
+  tables_obj = NULL;
 
   dump = json_dumps(root, JSON_COMPACT | JSON_ENSURE_ASCII);
   if (!dump) {
@@ -303,18 +140,22 @@ void status_json(Status* status, Config* config, Data* data) {
   status->json.jbuf[dump_len] = '\0';
   status->json.jlen = (unsigned)dump_len;
   success = 1;
-  LOG_DEBUG("JSON %u %u [%.*s]", (unsigned)sizeof(status->json.jbuf), status->json.jlen,
-            status->json.jlen, status->json.jbuf);
 
 done:
   if (dump) free(dump);
   if (root) json_decref(root);
+  if (tables_obj) json_decref(tables_obj);
+  if (server_obj) json_decref(server_obj);
+  if (software_obj) json_decref(software_obj);
+  if (config_obj) json_decref(config_obj);
+  if (process_obj) json_decref(process_obj);
   if (!success) {
     status->json.jlen = 0;
     status->json.jbuf[0] = '\0';
     LOG_WARN("Building status JSON failed");
   }
 }
+
 
 static unsigned get_uptime(Status* status) {
   unsigned now = time(0);
@@ -324,53 +165,44 @@ static unsigned get_uptime(Status* status) {
 
 static json_t* json_table(Table* table) {
   struct TableSlot* slot = &table->slots[table->current_slot];
-  json_t* obj = json_object();
-  if (!obj) return NULL;
-  if (json_object_set_uint(obj, "id", table->table_id) < 0 ||
-      json_object_set_uint(obj, "period", table->period) < 0 ||
-      json_object_set_uint(obj, "rows", table->stats.rows) < 0 ||
-      json_object_set_uint(obj, "min_id", table->stats.min_id) < 0 ||
-      json_object_set_uint(obj, "max_id", table->stats.max_id) < 0 ||
-      json_object_set_new_take(obj, "last_loaded",
-                               json_epoch_object(table->stats.last_loaded)) < 0) {
-    json_decref(obj);
-    return NULL;
-  }
-
+  json_t* last_loaded = json_epoch_object(table->stats.last_loaded);
   json_t* arena = json_table_arena(slot->arena, table->stats.rows);
-  if (!arena || json_object_set_new_take(obj, "arena", arena) < 0) {
-    if (arena) json_decref(arena);
-    json_decref(obj);
-    return NULL;
-  }
-
   json_t* hashes = json_table_hashes(table, slot);
-  if (!hashes || json_object_set_new_take(obj, "hashes", hashes) < 0) {
+  if (!last_loaded || !arena || !hashes) {
+    if (last_loaded) json_decref(last_loaded);
+    if (arena) json_decref(arena);
     if (hashes) json_decref(hashes);
-    json_decref(obj);
     return NULL;
   }
-
+  json_t* obj = json_pack("{s:s,s:i,s:i,s:i,s:i,s:O,s:O,s:O}",
+                          "name", table_name(table),
+                          "id", (int)table->table_id,
+                          "period", (int)table->period,
+                          "rows", (int)table->stats.rows,
+                          "min_id", (int)table->stats.min_id,
+                          "max_id", (int)table->stats.max_id,
+                          "last_loaded", last_loaded,
+                          "arena", arena,
+                          "hashes", hashes);
+  if (!obj) {
+    json_decref(last_loaded);
+    json_decref(arena);
+    json_decref(hashes);
+  }
   return obj;
 }
 
 static json_t* json_table_arena(Arena* arena, unsigned rows) {
-  json_t* obj = json_object();
-  if (!obj) return NULL;
   unsigned arena_cap = arena->capacity;
   unsigned arena_used = arena->used;
   unsigned arena_free = arena_cap - arena_used;
   double arena_bpr_avg = 0;
   if (rows) arena_bpr_avg = (double)arena->used / (double)rows;
-
-  if (json_object_set_uint(obj, "capacity_bytes", arena_cap) < 0 ||
-      json_object_set_uint(obj, "used_bytes", arena_used) < 0 ||
-      json_object_set_uint(obj, "free_bytes", arena_free) < 0 ||
-      json_object_set_real(obj, "row_avg_size_bytes", arena_bpr_avg) < 0) {
-    json_decref(obj);
-    return NULL;
-  }
-  return obj;
+  return json_pack("{s:i,s:i,s:i,s:f}",
+                   "capacity_bytes", (int)arena_cap,
+                   "used_bytes", (int)arena_used,
+                   "free_bytes", (int)arena_free,
+                   "row_avg_size_bytes", arena_bpr_avg);
 }
 
 static json_t* json_table_hashes(Table* table, struct TableSlot* slot) {
@@ -380,8 +212,12 @@ static json_t* json_table_hashes(Table* table, struct TableSlot* slot) {
     Hash* hash = slot->indexes[idx];
     if (!hash) continue;
     json_t* hash_obj = json_table_hash(table_name(table), hash, table->indexes[idx].column);
-    if (!hash_obj || json_object_set_new_take(obj, table->indexes[idx].column, hash_obj) < 0) {
-      if (hash_obj) json_decref(hash_obj);
+    if (!hash_obj) {
+      json_decref(obj);
+      return NULL;
+    }
+    if (json_object_set_new(obj, table->indexes[idx].column, hash_obj) < 0) {
+      json_decref(hash_obj);
       json_decref(obj);
       return NULL;
     }
@@ -455,62 +291,130 @@ static json_t* json_table_hash(const char* tname, Hash* hash, const char* iname)
     }
   }
 
-  json_t* obj = json_object();
-  if (!obj) return NULL;
-  if (json_object_set_uint(obj, "total_slots", hash->cap) < 0 ||
-      json_object_set_uint(obj, "used_slots", hash->used) < 0 ||
-      json_object_set_uint(obj, "free_slots", free) < 0 ||
-      json_object_set_real(obj, "fill_factor_perc", fill_factor * 100) < 0 ||
-      json_object_set_uint(obj, "queries", hash->stats.queries) < 0 ||
-      json_object_set_uint(obj, "probes", probe_cnt) < 0 ||
-      json_object_set_real(obj, "probes_per_query_avg", ppq) < 0 ||
-      json_object_set_uint(obj, "probes_p50", stats[PERC_50].pos) < 0 ||
-      json_object_set_uint(obj, "probes_p95", stats[PERC_95].pos) < 0 ||
-      json_object_set_uint(obj, "probes_p99", stats[PERC_99].pos) < 0) {
-    json_decref(obj);
-    return NULL;
-  }
-  return obj;
+  return json_pack("{s:i,s:i,s:i,s:f,s:i,s:i,s:f,s:i,s:i,s:i}",
+                   "total_slots", (int)hash->cap,
+                   "used_slots", (int)hash->used,
+                   "free_slots", (int)free,
+                   "fill_factor_perc", fill_factor * 100,
+                   "queries", (int)hash->stats.queries,
+                   "probes", (int)probe_cnt,
+                   "probes_per_query_avg", ppq,
+                   "probes_p50", (int)stats[PERC_50].pos,
+                   "probes_p95", (int)stats[PERC_95].pos,
+                   "probes_p99", (int)stats[PERC_99].pos);
 }
 
 static const char* safe_string(const char* value) {
   return value ? value : "";
 }
 
+static json_t* json_server_info(Status* status) {
+  return json_pack("{s:s,s:s,s:s,s:s}",
+                   "host", status->server.host,
+                   "system", status->server.system,
+                   "machine", status->server.machine,
+                   "release", status->server.release);
+}
+
+static json_t* json_software_info(Status* status, const char* driver_key) {
+  json_t* libevent = json_pack("{s:s,s:s}",
+                               "version", status->libevent.version,
+                               "method", status->libevent.method);
+  if (!libevent) return NULL;
+  json_t* client = json_pack("{s:s}", "version", safe_string(status->db->client_version));
+  if (!client) {
+    json_decref(libevent);
+    return NULL;
+  }
+  json_t* server = json_pack("{s:s}", "version", safe_string(status->db->server_version));
+  if (!server) {
+    json_decref(libevent);
+    json_decref(client);
+    return NULL;
+  }
+  json_t* driver = json_pack("{s:O,s:O}", "client", client, "server", server);
+  if (!driver) {
+    json_decref(libevent);
+    json_decref(client);
+    json_decref(server);
+    return NULL;
+  }
+  json_t* software = json_pack("{s:O,s:O}", "libevent", libevent, driver_key, driver);
+  if (!software) {
+    json_decref(libevent);
+    json_decref(driver);
+  }
+  return software;
+}
+
+static json_t* json_config_info(Config* config, const char* driver_key) {
+  json_t* driver_cfg = NULL;
+  if (config->db.driver == CONFIG_DB_DRIVER_SQLITE) {
+    driver_cfg = json_pack("{s:s}", "filename", safe_string(config->db.sqlite_filename));
+  } else {
+    driver_cfg = json_pack("{s:s,s:i,s:s,s:s}",
+                           "host", config->db.host,
+                           "port", (int)config->db.port,
+                           "database", config->db.database,
+                           "user", config->db.user);
+  }
+  if (!driver_cfg) return NULL;
+
+  json_t* socket_cfg = json_pack("{s:s,s:i,s:s}",
+                                 "host", config->socket.host,
+                                 "port", (int)config->socket.port,
+                                 "path", config->socket.path);
+  if (!socket_cfg) {
+    json_decref(driver_cfg);
+    return NULL;
+  }
+
+  json_t* table_cfg = json_pack("{s:i,s:s,s:b}",
+                                "period", (int)config->table.period,
+                                "schema", safe_string(config->table.schema),
+                                "strip_null", config->table.strip_null ? 1 : 0);
+  if (!table_cfg) {
+    json_decref(driver_cfg);
+    json_decref(socket_cfg);
+    return NULL;
+  }
+
+  json_t* server_cfg = json_pack("{s:b}", "show_msgs", config->server.show_msgs ? 1 : 0);
+  if (!server_cfg) {
+    json_decref(driver_cfg);
+    json_decref(socket_cfg);
+    json_decref(table_cfg);
+    return NULL;
+  }
+
+  json_t* config_obj = json_pack("{s:O,s:O,s:O,s:O}",
+                                 driver_key, driver_cfg,
+                                 "socket", socket_cfg,
+                                 "table", table_cfg,
+                                 "server", server_cfg);
+  if (!config_obj) {
+    json_decref(driver_cfg);
+    json_decref(socket_cfg);
+    json_decref(table_cfg);
+    json_decref(server_cfg);
+  }
+  return config_obj;
+}
+
+static json_t* json_process_info(Status* status) {
+  json_t* birth = json_epoch_object(status->process.birth);
+  if (!birth) return NULL;
+  json_t* process = json_pack("{s:i,s:O}",
+                              "uptime", (int)get_uptime(status),
+                              "birth", birth);
+  if (!process) {
+    json_decref(birth);
+  }
+  return process;
+}
+
 static json_t* json_epoch_object(unsigned epoch) {
   char formatted[MAX_STAMP_LEN];
   format_timestamp(epoch, formatted, sizeof(formatted));
-  json_t* obj = json_object();
-  if (!obj) return NULL;
-  if (json_object_set_string(obj, "formatted", formatted) < 0 ||
-      json_object_set_uint(obj, "epoch", epoch) < 0) {
-    json_decref(obj);
-    return NULL;
-  }
-  return obj;
-}
-
-static int json_object_set_new_take(json_t* obj, const char* key, json_t* value) {
-  if (!value) return -1;
-  if (json_object_set_new(obj, key, value) < 0) {
-    json_decref(value);
-    return -1;
-  }
-  return 0;
-}
-
-static int json_object_set_string(json_t* obj, const char* key, const char* value) {
-  return json_object_set_new_take(obj, key, json_string(safe_string(value)));
-}
-
-static int json_object_set_uint(json_t* obj, const char* key, unsigned value) {
-  return json_object_set_new_take(obj, key, json_integer(value));
-}
-
-static int json_object_set_real(json_t* obj, const char* key, double value) {
-  return json_object_set_new_take(obj, key, json_real(value));
-}
-
-static int json_object_set_bool(json_t* obj, const char* key, unsigned value) {
-  return json_object_set_new_take(obj, key, json_boolean(value ? 1 : 0));
+  return json_pack("{s:s,s:i}", "formatted", formatted, "epoch", (int)epoch);
 }
