@@ -91,7 +91,7 @@ jobs:
           rm -f "$MELIAN_SQLITE_FILENAME"
           gunzip -c .github/workflows/assets/melian-sqlite.sql.gz | sqlite3 "$MELIAN_SQLITE_FILENAME"
 
-      - name: Run client tests (Perl, Python, PHP, Node.js)
+      - name: Client tests and benchmarks
         run: |
           set -euo pipefail
           ./melian-server >server.log 2>&1 &
