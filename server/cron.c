@@ -1,5 +1,7 @@
+#include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 #include <event2/event.h>
 #include <event2/util.h>
 #include <pthread.h>
@@ -85,7 +87,16 @@ unsigned cron_stop(Cron* cron) {
 }
 
 static void poke_thread(Cron* cron, uint8_t message) {
-  write(cron->pair[1], &message, 1);
+  ssize_t wrote = 0;
+  do {
+    wrote = write(cron->pair[1], &message, 1);
+  } while (wrote < 0 && errno == EINTR);
+
+  if (wrote < 0) {
+    LOG_ERROR("Failed to poke cron thread: %s", strerror(errno));
+  } else if (wrote != 1) {
+    LOG_ERROR("Failed to deliver cron message, wrote %zd bytes", wrote);
+  }
 }
 
 static void on_tick(evutil_socket_t fd, short what, void *arg) {
