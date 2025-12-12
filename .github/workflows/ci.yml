@@ -23,14 +23,28 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            autoconf \
             build-essential \
-            pkg-config \
+            cpanminus \
             libevent-dev \
             libjansson-dev \
             libsqlite3-dev \
+            perl \
+            pkg-config \
             sqlite3 \
-            cpanminus \
-            perl
+            texinfo \
+            xz-utils
+
+      - name: Install Automake 1.17
+        run: |
+          curl -sSL https://ftp.gnu.org/gnu/automake/automake-1.17.tar.xz -o /tmp/automake.tar.xz
+          tar -xf /tmp/automake.tar.xz -C /tmp
+          pushd /tmp/automake-1.17 >/dev/null
+          ./configure --prefix=/usr/local
+          make -j"$(nproc)"
+          sudo make install
+          popd >/dev/null
+          rm -rf /tmp/automake-1.17 /tmp/automake.tar.xz
 
       - name: Configure (SQLite only)
         run: ./configure --with-sqlite3=/usr
