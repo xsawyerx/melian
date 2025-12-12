@@ -113,17 +113,16 @@ am__DEPENDENCIES_1 =
 melian_client_DEPENDENCIES = $(am__DEPENDENCIES_1) \
 	$(am__DEPENDENCIES_1)
 am_melian_server_OBJECTS = server/util.$(OBJEXT) server/log.$(OBJEXT) \
-	server/json.$(OBJEXT) server/arena.$(OBJEXT) \
-	server/xxhash.$(OBJEXT) server/hash.$(OBJEXT) \
-	server/server.$(OBJEXT) server/config.$(OBJEXT) \
-	server/status.$(OBJEXT) server/data.$(OBJEXT) \
-	server/db.$(OBJEXT) server/cron.$(OBJEXT) \
-	server/melian-server.$(OBJEXT)
+	server/arena.$(OBJEXT) server/xxhash.$(OBJEXT) \
+	server/hash.$(OBJEXT) server/server.$(OBJEXT) \
+	server/config.$(OBJEXT) server/status.$(OBJEXT) \
+	server/data.$(OBJEXT) server/db.$(OBJEXT) \
+	server/cron.$(OBJEXT) server/melian-server.$(OBJEXT)
 melian_server_OBJECTS = $(am_melian_server_OBJECTS)
 melian_server_DEPENDENCIES = $(am__DEPENDENCIES_1) \
 	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
 	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
-	$(am__DEPENDENCIES_1)
+	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1)
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
 am__v_P_0 = false
@@ -143,10 +142,10 @@ am__depfiles_remade = clients/c/$(DEPDIR)/client.Po \
 	clients/c/$(DEPDIR)/melian-client.Po server/$(DEPDIR)/arena.Po \
 	server/$(DEPDIR)/config.Po server/$(DEPDIR)/cron.Po \
 	server/$(DEPDIR)/data.Po server/$(DEPDIR)/db.Po \
-	server/$(DEPDIR)/hash.Po server/$(DEPDIR)/json.Po \
-	server/$(DEPDIR)/log.Po server/$(DEPDIR)/melian-server.Po \
-	server/$(DEPDIR)/server.Po server/$(DEPDIR)/status.Po \
-	server/$(DEPDIR)/util.Po server/$(DEPDIR)/xxhash.Po
+	server/$(DEPDIR)/hash.Po server/$(DEPDIR)/log.Po \
+	server/$(DEPDIR)/melian-server.Po server/$(DEPDIR)/server.Po \
+	server/$(DEPDIR)/status.Po server/$(DEPDIR)/util.Po \
+	server/$(DEPDIR)/xxhash.Po
 am__mv = mv -f
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
@@ -339,7 +338,6 @@ AM_CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -g
 melian_server_SOURCES = \
 	server/util.c \
 	server/log.c \
-	server/json.c \
 	server/arena.c \
 	server/xxhash.c \
 	server/hash.c \
@@ -357,6 +355,7 @@ melian_server_LDADD = \
 	$(SQLITE_LIBS) \
 	$(POSTGRESQL_LIBS) \
 	$(PTHREAD_LIBS) \
+	$(JANSSON_LIBS) \
 	$(LIBM)
 
 melian_client_SOURCES = \
@@ -470,8 +469,6 @@ server/util.$(OBJEXT): server/$(am__dirstamp) \
 	server/$(DEPDIR)/$(am__dirstamp)
 server/log.$(OBJEXT): server/$(am__dirstamp) \
 	server/$(DEPDIR)/$(am__dirstamp)
-server/json.$(OBJEXT): server/$(am__dirstamp) \
-	server/$(DEPDIR)/$(am__dirstamp)
 server/arena.$(OBJEXT): server/$(am__dirstamp) \
 	server/$(DEPDIR)/$(am__dirstamp)
 server/xxhash.$(OBJEXT): server/$(am__dirstamp) \
@@ -513,7 +510,6 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@server/$(DEPDIR)/data.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@server/$(DEPDIR)/db.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@server/$(DEPDIR)/hash.Po@am__quote@ # am--include-marker
-@AMDEP_TRUE@@am__include@ @am__quote@server/$(DEPDIR)/json.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@server/$(DEPDIR)/log.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@server/$(DEPDIR)/melian-server.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@server/$(DEPDIR)/server.Po@am__quote@ # am--include-marker
@@ -828,7 +824,6 @@ distclean: distclean-am
 	-rm -f server/$(DEPDIR)/data.Po
 	-rm -f server/$(DEPDIR)/db.Po
 	-rm -f server/$(DEPDIR)/hash.Po
-	-rm -f server/$(DEPDIR)/json.Po
 	-rm -f server/$(DEPDIR)/log.Po
 	-rm -f server/$(DEPDIR)/melian-server.Po
 	-rm -f server/$(DEPDIR)/server.Po
@@ -890,7 +885,6 @@ maintainer-clean: maintainer-clean-am
 	-rm -f server/$(DEPDIR)/data.Po
 	-rm -f server/$(DEPDIR)/db.Po
 	-rm -f server/$(DEPDIR)/hash.Po
-	-rm -f server/$(DEPDIR)/json.Po
 	-rm -f server/$(DEPDIR)/log.Po
 	-rm -f server/$(DEPDIR)/melian-server.Po
 	-rm -f server/$(DEPDIR)/server.Po
