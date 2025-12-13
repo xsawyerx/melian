@@ -75,6 +75,7 @@ jobs:
             pkg-config \
             node \
             xz
+          echo "PKG_CONFIG_PATH=$(brew --prefix libevent)/lib/pkgconfig:$(brew --prefix jansson)/lib/pkgconfig:${PKG_CONFIG_PATH}" >> $GITHUB_ENV
 
       - name: Install Automake 1.17
         run: |
@@ -95,9 +96,13 @@ jobs:
       - name: Configure (SQLite only)
         run: |
           if [ -n "${{ matrix.configure_flags }}" ]; then
-            ./configure ${{ matrix.configure_flags }}
+            ./configure ${{ matrix.configure_flags }} \
+              CPPFLAGS="-I$(brew --prefix libevent)/include -I$(brew --prefix jansson)/include" \
+              LDFLAGS="-L$(brew --prefix libevent)/lib -L$(brew --prefix jansson)/lib"
           else
-            ./configure
+            ./configure \
+              CPPFLAGS="-I$(brew --prefix libevent)/include -I$(brew --prefix jansson)/include" \
+              LDFLAGS="-L$(brew --prefix libevent)/lib -L$(brew --prefix jansson)/lib"
           fi
 
       - name: Build
