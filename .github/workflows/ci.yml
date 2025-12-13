@@ -5,8 +5,16 @@ on:
   pull_request:
 
 jobs:
-  Malian:
-    runs-on: ubuntu-latest
+  build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            configure_flags: "--with-sqlite3=/usr"
+          - os: macos-latest
+            configure_flags: ""
+    runs-on: ${{ matrix.os }}
     env:
       MELIAN_TABLE_TABLES: 'table1#0|60|id#0:int,table2#1|60|id#0:int;hostname#1:string'
       MELIAN_DB_DRIVER: sqlite
@@ -26,7 +34,8 @@ jobs:
           cache: 'npm'
           cache-dependency-path: clients/nodejs/package-lock.json
 
-      - name: Install dependencies
+      - name: Install dependencies (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -48,22 +57,53 @@ jobs:
             texinfo \
             xz-utils
 
+      - name: Install dependencies (macOS)
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew update
+          brew install \
+            autoconf \
+            automake \
+            cpanminus \
+            composer \
+            libevent \
+            jansson \
+            sqlite \
+            perl \
+            php \
+            python \
+            pkg-config \
+            node \
+            xz
+
       - name: Install Automake 1.17
         run: |
           curl -sSL https://ftp.gnu.org/gnu/automake/automake-1.17.tar.xz -o /tmp/automake.tar.xz
           tar -xf /tmp/automake.tar.xz -C /tmp
           pushd /tmp/automake-1.17 >/dev/null
           ./configure --prefix=/usr/local
-          make -j"$(nproc)"
-          sudo make install
+          JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu || echo 2)
+          make -j"${JOBS}"
+          if command -v sudo >/dev/null 2>&1; then
+            sudo make install
+          else
+            make install
+          fi
           popd >/dev/null
           rm -rf /tmp/automake-1.17 /tmp/automake.tar.xz
 
       - name: Configure (SQLite only)
-        run: ./configure --with-sqlite3=/usr
+        run: |
+          if [ -n "${{ matrix.configure_flags }}" ]; then
+            ./configure ${{ matrix.configure_flags }}
+          else
+            ./configure
+          fi
 
       - name: Build
-        run: make -j"$(nproc)"
+        run: |
+          JOBS=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu || echo 2)
+          make -j"${JOBS}"
 
       - name: setup cpanm with local::lib
         run: cpanm --local-lib=~/perl5 local::lib
@@ -98,7 +138,15 @@ jobs:
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT
           trap 'cat server.log; kill "$server_pid" 2>/dev/null || true' ERR
-          timeout 30 bash -c 'until [ -S /tmp/melian.sock ]; do sleep 1; done'
+          wait_seconds=0
+          while [ ! -S /tmp/melian.sock ]; do
+            if [ "$wait_seconds" -ge 30 ]; then
+              echo "Server socket not ready after 30 seconds"
+              exit 1
+            fi
+            sleep 1
+            wait_seconds=$((wait_seconds + 1))
+          done
           rc=0
           run_client_suite() {
             local label=$1
