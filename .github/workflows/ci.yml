@@ -13,7 +13,7 @@ jobs:
           - os: ubuntu-latest
             configure_flags: "--with-sqlite3=/usr"
           - os: macos-latest
-            configure_flags: ""
+            configure_flags: "--with-sqlite3=$(brew --prefix sqlite) --with-libevent=$(brew --prefix libevent) --with-jansson=$(brew --prefix jansson)"
     runs-on: ${{ matrix.os }}
     env:
       MELIAN_TABLE_TABLES: 'table1#0|60|id#0:int,table2#1|60|id#0:int;hostname#1:string'
@@ -66,15 +66,9 @@ jobs:
             automake \
             cpanminus \
             composer \
-            libevent \
             jansson \
-            sqlite \
-            perl \
             php \
-            python \
-            pkg-config \
-            node \
-            xz
+            node
 
       - name: Install Automake 1.17
         run: |
