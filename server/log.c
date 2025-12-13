@@ -18,10 +18,23 @@
 int pthread_threadid_np(pthread_t thread, uint64_t *thread_id);
 #define GETTID(T) pthread_threadid_np(NULL, &T)
 
+#elif defined(_WIN32)
+
+#include <windows.h>
+#define GETTID(T) T = (uint64_t)GetCurrentThreadId()
+
 #else
 
+#include <sys/syscall.h>
 #include <sys/types.h>
-#define GETTID(T) T = gettid()
+static inline pid_t portable_gettid(void) {
+#ifdef SYS_gettid
+  return syscall(SYS_gettid);
+#else
+  return (pid_t)getpid();
+#endif
+}
+#define GETTID(T) T = portable_gettid()
 
 #endif
 
