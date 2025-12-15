@@ -12,6 +12,7 @@
 #include "config.h"
 
 static const char* get_config_string(const char* name, const char* def);
+static const char* get_config_string_allow_empty(const char* name, const char* def);
 static int get_config_number(const char* name, const char* def);
 static unsigned get_config_bool(const char* name, const char* def);
 static char* trim(char* s);
@@ -98,7 +99,7 @@ Config* config_build(void) {
 
     config->socket.host = get_config_string("MELIAN_SOCKET_HOST", MELIAN_DEFAULT_SOCKET_HOST);
     config->socket.port = get_config_number("MELIAN_SOCKET_PORT", MELIAN_DEFAULT_SOCKET_PORT);
-    config->socket.path = get_config_string("MELIAN_SOCKET_PATH", MELIAN_DEFAULT_SOCKET_PATH);
+    config->socket.path = get_config_string_allow_empty("MELIAN_SOCKET_PATH", MELIAN_DEFAULT_SOCKET_PATH);
 
     config->table.period = get_config_number("MELIAN_TABLE_PERIOD", MELIAN_DEFAULT_TABLE_PERIOD);
     config->table.strip_null = get_config_bool("MELIAN_TABLE_STRIP_NULL", MELIAN_DEFAULT_TABLE_STRIP_NULL);
@@ -151,6 +152,14 @@ static const char* get_config_string(const char* name, const char* def) {
   if (value && value[0]) return value;
   const char* override = config_file_default_for(name);
   if (override && override[0]) return override;
+  return def;
+}
+
+static const char* get_config_string_allow_empty(const char* name, const char* def) {
+  const char* value = getenv(name);
+  if (value) return value;
+  const char* override = config_file_default_for(name);
+  if (override) return override;
   return def;
 }
 
