@@ -93,18 +93,87 @@ $ MELIAN_SOCKET_HOST=localhost MELIAN_SOCKET_PORT=9999 ./melian-server
 $ ./melian-server --help
 ```
 
-Set the database driver explicitly and adjust shared settings via these environment variables:
+Set the database driver explicitly and adjust shared settings via config file or environment variables.
 
-* `MELIAN_DB_DRIVER`: `mysql`, `postgresql`, or `sqlite` (required)
-* `MELIAN_DB_HOST`: database host (default `127.0.0.1`)
-* `MELIAN_DB_PORT`: database port (default `3306`)
-* `MELIAN_DB_NAME`: database/schema name (default `melian`)
-* `MELIAN_DB_USER`: username (default `melian`)
-* `MELIAN_DB_PASSWORD`: password (default `meliansecret`)
-* `MELIAN_SQLITE_FILENAME`: SQLite database filename (default `/etc/melian.db`)
+### Configuration file
+
+```
+{
+    "database": {
+        "driver": "sqlite",
+        "name": "melian",
+        "host": "localhost",
+        "port": 9000,
+        "username": "melian",
+        "password": "melian",
+        "sqlite": {
+            "filename": "/var/lib/melian.db"
+        }
+    },
+    "tables": [
+        {
+            "name": "table1",
+            "id": 0,
+            "period": 60,
+            "indexes": [
+                {
+                    "id": 0,
+                    "column": "id",
+                    "type": "int"
+                }
+            ]
+        },
+        {
+            "name": "table2",
+            "id": 1,
+            "period": 60,
+            "indexes": [
+                {
+                    "id": 0,
+                    "column": "id",
+                    "type": "int"
+                },
+                {
+                    "id": 1,
+                    "column": "hostname",
+                    "type": "string"
+                }
+            ]
+        }
+    ]
+}
+```
+
+You can store the entire configuration in a JSON file and tell the server to load it at startup:
+
+```bash
+$ ./melian-server -c /path/to/melian-config.json
+# or
+$ ./melian-server --configfile /path/to/melian-config.json
+```
+
+Configuration sources are consulted in this order:
+
+1. Command-line `-c/--configfile`.
+2. Environment variable `MELIAN_CONFIG_FILE`.
+3. Default `/etc/melian.json`.
+
+Any values from the configuration file are still overridable by environment variables so you can keep secrets out of the file (e.g., inject `MELIAN_DB_PASSWORD` at runtime while other settings live in JSON).
+
+### Environment variables
+
+These will override any values in the config file.
+
+* `MELIAN_DB_DRIVER` (config: `database.driver`): `mysql`, `postgresql`, or `sqlite` (required)
+* `MELIAN_DB_HOST` (config: `database.host`): database host (default `127.0.0.1`)
+* `MELIAN_DB_PORT` (config: `database.port`): database port (default `3306`)
+* `MELIAN_DB_NAME` (config: `database.name`): database/schema name (default `melian`)
+* `MELIAN_DB_USER` (config: `database.username`): username (default `melian`)
+* `MELIAN_DB_PASSWORD` (config: `database.password`): password (default `meliansecret`)
+* `MELIAN_SQLITE_FILENAME` (config: `database.sqlite.filename`): SQLite database filename (default `/etc/melian.db`)
 * `MELIAN_TABLE_SELECTS`: semicolon-separated overrides (`table=SELECT ...;table2=SELECT ...`) to customize per-table SELECT statements
 * `MELIAN_SOCKET_PATH`: `/tmp/melian.sock`
-* `MELIAN_TABLE_TABLES`: `table1,table2`
+* `MELIAN_TABLE_TABLES` (config: `tables`): `table1,table2`
 * `MELIAN_TABLE_PERIOD`: `60` seconds (reload interval)
 
 When using `MELIAN_TABLE_SELECTS`, ensure each entry follows `table_name=SELECT ...` and separate multiple entries with `;`. The SQL is used verbatim, so double-check statements for the intended tables.
