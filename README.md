@@ -172,7 +172,7 @@ These will override any values in the config file.
 * `MELIAN_DB_PASSWORD` (config: `database.password`): password (default `meliansecret`)
 * `MELIAN_SQLITE_FILENAME` (config: `database.sqlite.filename`): SQLite database filename (default `/etc/melian.db`)
 * `MELIAN_TABLE_SELECTS`: semicolon-separated overrides (`table=SELECT ...;table2=SELECT ...`) to customize per-table SELECT statements
-* `MELIAN_SOCKET_PATH`: `/tmp/melian.sock`
+* `MELIAN_SOCKET_PATH`: `/tmp/melian.sock` (set to an empty string to disable the UNIX socket and enable TCP)
 * `MELIAN_TABLE_TABLES` (config: `tables`): `table1,table2`
 * `MELIAN_TABLE_PERIOD`: `60` seconds (reload interval)
 
@@ -184,7 +184,8 @@ When using `MELIAN_TABLE_SELECTS`, ensure each entry follows `table_name=SELECT 
 # Connect to a UNIX socket
 $ ./melian-client -u /tmp/melian.sock
 
-# Connect to a TCP socket
+# Connect to a TCP socket (ensure the UNIX socket is disabled)
+$ MELIAN_SOCKET_PATH= MELIAN_SOCKET_HOST=127.0.0.1 MELIAN_SOCKET_PORT=8765 ./melian-server
 $ ./melian-client -p 8765
 
 # Display client options
