@@ -1,3 +1,18 @@
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/xsawyerx/melian/ci.yml)
+![Issues](https://img.shields.io/github/issues/xsawyerx/melian)
+![License](https://img.shields.io/github/license/xsawyerx/melian)
+
+![C](https://img.shields.io/badge/C-blue?logo=c&logoColor=ffffff)
+![Python](https://img.shields.io/badge/Python-blue?logo=python&logoColor=ffffff)
+![Javscript](https://img.shields.io/badge/Javascript-blue?logo=javascript&logoColor=ffffff)
+![PHP](https://img.shields.io/badge/PHP-blue?logo=php&logoColor=ffffff)
+![Perl](https://img.shields.io/badge/Perl-blue?logo=perl)
+![Raku](https://img.shields.io/badge/Raku-blue)
+
+![MySQL](https://img.shields.io/badge/MySQL-red?logo=mysql&logoColor=ffffff)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-red?logo=postgresql&logoColor=ffffff)
+![SQLite](https://img.shields.io/badge/SQLite-red?logo=sqlite&logoColor=ffffff)
+
 # Melian
 
 Melian is a blazing-fast, in-memory cache server written in C.
