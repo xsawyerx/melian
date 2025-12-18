@@ -17,7 +17,7 @@
 
 Melian is a blazing-fast, in-memory cache server written in C.
 
-It keeps entire database tables in memory and automatically refreshes them on a schedule, making read-heavy lookups near instantaneous (sub-millisecond) while staying simple and predictable.
+It keeps entire or partial database tables in memory and automatically refreshes them on a schedule, making read-heavy lookups near instantaneous (sub-millisecond) while staying simple and predictable.
 
 Example:
 
@@ -37,7 +37,7 @@ C:  10000 reqs,  10000 good,   0 bad,   68 ms →  145516 req/s,   6.87210 ±  0
 * Data model: Full- or partial-table snapshots, but not individual keys.
 * Consistency: Always serves complete, coherent snapshots - no half-updated data.
 * Dual-key indexing: look up entries by numeric or string key.
-* Clients in [C](https://github.com/xsawyerx/melian/tree/main/clients/c), [Node.js](https://github.com/xsawyerx/melian/tree/main/clients/js), [Perl](https://metacpan.org/pod/Melian), [PHP](https://github.com/xsawyerx/melian/tree/main/clients/php/Melian), and [Python](https://github.com/xsawyerx/melian/tree/main/clients/python).
+* Clients in [Node.js](https://github.com/xsawyerx/melian-nodejs), [Python](https://github.com/xsawyerx/melian-python), [C](https://github.com/xsawyerx/melian/tree/main/clients/c), [Perl](https://metacpan.org/pod/Melian), [PHP](https://github.com/xsawyerx/melian-php/), and [Raku](https://github.com/xsawyerx/melian-raku).
 * Runtime performance statistics: query table size, min/max ID, and memory usage.
 
 ## Why
@@ -194,6 +194,8 @@ These will override any values in the config file.
 When using `MELIAN_TABLE_SELECTS`, ensure each entry follows `table_name=SELECT ...` and separate multiple entries with `;`. The SQL is used verbatim, so double-check statements for the intended tables.
 
 2. Use the test client
+
+Ths describes the test client we have in C.
 
 ```bash
 # Connect to a UNIX socket
