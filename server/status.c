@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -281,10 +282,20 @@ static json_t* json_table_hash(const char* tname, Hash* hash, const char* iname)
       unsigned mpos = 0;
       for (unsigned s = 0; s < PERC_LAST; ++s) {
         if (stats[s].found && !stats[s].shown) {
-          mpos += snprintf(mbuf + mpos, 128 - mpos, "%s", symbols[s]);
+          int wrote = snprintf(mbuf + mpos, 128 - mpos, "%s", symbols[s]);
+          if (wrote < 0 || (size_t)wrote >= 128 - mpos) {
+            errno = ENOMEM;
+            LOG_FATAL("Status percentile marker overflow while writing %s", symbols[s]);
+          }
+          mpos += wrote;
           stats[s].shown = 1;
         } else {
-          mpos += snprintf(mbuf + mpos, 128 - mpos, "%s", " ");
+          int wrote = snprintf(mbuf + mpos, 128 - mpos, "%s", " ");
+          if (wrote < 0 || (size_t)wrote >= 128 - mpos) {
+            errno = ENOMEM;
+            LOG_FATAL("Status percentile spacing overflow");
+          }
+          mpos += wrote;
         }
       }
       LOG_INFO("Probes %4u: num = %8u, acc = %8u ║ %.*s", h, val, sum_all, mpos, mbuf);

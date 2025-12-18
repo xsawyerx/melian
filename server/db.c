@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,7 +31,11 @@ enum {
 static const char* table_select_sql(Table* table) {
   if (!table) return "";
   if (!table->select_stmt[0] && table->name[0]) {
-    snprintf(table->select_stmt, sizeof(table->select_stmt), "SELECT * FROM %s", table->name);
+    int wrote = snprintf(table->select_stmt, sizeof(table->select_stmt), "SELECT * FROM %s", table->name);
+    if (wrote < 0 || (size_t)wrote >= sizeof(table->select_stmt)) {
+      errno = ENOMEM;
+      LOG_FATAL("Default SELECT for table %s exceeds %zu bytes", table->name, sizeof(table->select_stmt) - 1);
+    }
   }
   return table->select_stmt;
 }
@@ -261,12 +266,24 @@ static void driver_not_supported(ConfigDbDriver driver) {
 static void mysql_refresh_versions(DB* db) {
   db->client_version[0] = '\0';
   const char* c = mysql_get_client_info();
-  if (c) snprintf(db->client_version, sizeof(db->client_version), "%s", c);
+  if (c) {
+    int wrote = snprintf(db->client_version, sizeof(db->client_version), "%s", c);
+    if (wrote < 0 || (size_t)wrote >= sizeof(db->client_version)) {
+      errno = ENOMEM;
+      LOG_FATAL("MySQL client version string too long (%s)", c);
+    }
+  }
 
   db->server_version[0] = '\0';
   if (db->mysql) {
     const char* s = mysql_get_server_info((MYSQL*) db->mysql);
-    if (s) snprintf(db->server_version, sizeof(db->server_version), "%s", s);
+    if (s) {
+      int wrote = snprintf(db->server_version, sizeof(db->server_version), "%s", s);
+      if (wrote < 0 || (size_t)wrote >= sizeof(db->server_version)) {
+        errno = ENOMEM;
+        LOG_FATAL("MySQL server version string too long (%s)", s);
+      }
+    }
   }
 }
 
@@ -314,7 +331,11 @@ static unsigned db_mysql_get_table_size(DB* db, Table* table) {
     const char* select_sql = table_select_sql(table);
     LOG_DEBUG("Counting rows from table %s", table_name(table));
     char sql[MAX_SQL_LEN];
-    snprintf(sql, MAX_SQL_LEN, "SELECT COUNT(*) FROM (%s) AS melian_sub", select_sql);
+    int wrote = snprintf(sql, MAX_SQL_LEN, "SELECT COUNT(*) FROM (%s) AS melian_sub", select_sql);
+    if (wrote < 0 || wrote >= MAX_SQL_LEN) {
+      errno = ENOMEM;
+      LOG_FATAL("SQL buffer overflow while counting rows for table %s", table->name);
+    }
     if (mysql_query((MYSQL*) db->mysql, sql)) {
       LOG_WARN("Cannot run query [%s] for table %s", sql, table_name(table));
       break;
@@ -399,7 +420,11 @@ static unsigned db_mysql_query_into_hash(DB* db, Table* table, struct TableSlot*
 
       types[col] = field->type;
       LOG_DEBUG("Column %u type %u", col, (unsigned) field->type);
-      snprintf(names[col], MAX_FIELD_NAME_LEN, "%s", field->name);
+      int wrote = snprintf(names[col], MAX_FIELD_NAME_LEN, "%s", field->name);
+      if (wrote < 0 || (size_t)wrote >= MAX_FIELD_NAME_LEN) {
+        errno = ENOMEM;
+        LOG_FATAL("MySQL column name '%s' exceeds %zu bytes", field->name, MAX_FIELD_NAME_LEN - 1);
+      }
       for (unsigned idx = 0; idx < table->index_count; ++idx) {
         if (strcmp(field->name, table->indexes[idx].column) == 0) {
           index_pos[idx] = col;
@@ -414,16 +439,38 @@ static unsigned db_mysql_query_into_hash(DB* db, Table* table, struct TableSlot*
     while ((row = mysql_fetch_row(result))) {
       char jbuf[MAX_JSON_LEN];
       unsigned jpos = 0;
-      jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "{");
+      int wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "{");
+      if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+        errno = ENOMEM;
+        LOG_FATAL("MySQL JSON buffer overflow at start of row for table %s", table->name);
+      }
+      jpos += wrote;
       unsigned cols = 0;
       for (unsigned col = 0; col < num_fields; col++) {
         unsigned col_is_null = !row[col] || types[col] == MYSQL_TYPE_NULL;
         if (db->config->table.strip_null && col_is_null) continue;
 
-        if (cols > 0) jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, ",");
-        jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\":", names[col]);
+        if (cols > 0) {
+          wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, ",");
+          if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+            errno = ENOMEM;
+            LOG_FATAL("MySQL JSON buffer overflow while separating columns for table %s", table->name);
+          }
+          jpos += wrote;
+        }
+        wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\":", names[col]);
+        if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+          errno = ENOMEM;
+          LOG_FATAL("MySQL JSON buffer overflow while writing column name %s for table %s", names[col], table->name);
+        }
+        jpos += wrote;
         if (col_is_null) {
-          jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "null");
+          wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "null");
+          if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+            errno = ENOMEM;
+            LOG_FATAL("MySQL JSON buffer overflow writing null for column %s", names[col]);
+          }
+          jpos += wrote;
         } else {
           switch (types[col]) {
             case MYSQL_TYPE_TIMESTAMP:
@@ -444,16 +491,31 @@ static unsigned db_mysql_query_into_hash(DB* db, Table* table, struct TableSlot*
             case MYSQL_TYPE_VAR_STRING:
             case MYSQL_TYPE_STRING:
             case MYSQL_TYPE_GEOMETRY:
-              jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\"", row[col]);
+              wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\"", row[col]);
+              if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+                errno = ENOMEM;
+                LOG_FATAL("MySQL JSON buffer overflow writing string value for column %s", names[col]);
+              }
+              jpos += wrote;
               break;
             default:
-              jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "%s", row[col]);
+              wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "%s", row[col]);
+              if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+                errno = ENOMEM;
+                LOG_FATAL("MySQL JSON buffer overflow writing numeric value for column %s", names[col]);
+              }
+              jpos += wrote;
               break;
           }
         }
         ++cols;
       }
-      jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "}");
+      wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "}");
+      if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+        errno = ENOMEM;
+        LOG_FATAL("MySQL JSON buffer overflow while closing row for table %s", table->name);
+      }
+      jpos += wrote;
       ++rows;
       LOG_DEBUG("Fetched row %u: %p %u [%.*s]", rows, row, jpos, jpos, jbuf);
 
@@ -512,7 +574,11 @@ static unsigned db_mysql_query_into_hash(DB* db, Table* table, struct TableSlot*
 
 static void sqlite_refresh_versions(DB* db) {
   db->client_version[0] = '\0';
-  snprintf(db->client_version, sizeof(db->client_version), "%s", sqlite3_libversion());
+  int wrote = snprintf(db->client_version, sizeof(db->client_version), "%s", sqlite3_libversion());
+  if (wrote < 0 || (size_t)wrote >= sizeof(db->client_version)) {
+    errno = ENOMEM;
+    LOG_FATAL("SQLite client version string too long");
+  }
 
   db->server_version[0] = '\0';
   if (!db->sqlite) return;
@@ -521,7 +587,13 @@ static void sqlite_refresh_versions(DB* db) {
   if (sqlite3_prepare_v2(db->sqlite, "SELECT sqlite_version()", -1, &stmt, NULL) == SQLITE_OK) {
     if (sqlite3_step(stmt) == SQLITE_ROW) {
       const unsigned char* text = sqlite3_column_text(stmt, 0);
-      if (text) snprintf(db->server_version, sizeof(db->server_version), "%s", text);
+      if (text) {
+        wrote = snprintf(db->server_version, sizeof(db->server_version), "%s", text);
+        if (wrote < 0 || (size_t)wrote >= sizeof(db->server_version)) {
+          errno = ENOMEM;
+          LOG_FATAL("SQLite server version string too long");
+        }
+      }
     }
   }
   if (stmt) sqlite3_finalize(stmt);
@@ -565,7 +637,11 @@ static unsigned db_sqlite_get_table_size(DB* db, Table* table) {
       break;
     }
     char sql[MAX_SQL_LEN];
-    snprintf(sql, MAX_SQL_LEN, "SELECT COUNT(*) FROM (%s) AS melian_sub", table_select_sql(table));
+    int wrote = snprintf(sql, MAX_SQL_LEN, "SELECT COUNT(*) FROM (%s) AS melian_sub", table_select_sql(table));
+    if (wrote < 0 || wrote >= MAX_SQL_LEN) {
+      errno = ENOMEM;
+      LOG_FATAL("SQLite row count query too long for table %s", table->name);
+    }
     if (sqlite3_prepare_v2(db->sqlite, sql, -1, &stmt, NULL) != SQLITE_OK) {
       LOG_WARN("Cannot run query [%s] for table %s: %s", sql, table_name(table), sqlite3_errmsg(db->sqlite));
       break;
@@ -609,7 +685,11 @@ static unsigned db_sqlite_query_into_hash(DB* db, Table* table, struct TableSlot
     for (unsigned idx = 0; idx < MELIAN_MAX_INDEXES; ++idx) index_pos[idx] = -1;
     for (int col = 0; col < num_fields; ++col) {
       const char* name = sqlite3_column_name(stmt, col);
-      snprintf(names[col], MAX_FIELD_NAME_LEN, "%s", name ? name : "");
+      int wrote = snprintf(names[col], MAX_FIELD_NAME_LEN, "%s", name ? name : "");
+      if (wrote < 0 || (size_t)wrote >= MAX_FIELD_NAME_LEN) {
+        errno = ENOMEM;
+        LOG_FATAL("SQLite column name too long for table %s", table->name);
+      }
       for (unsigned idx = 0; idx < table->index_count; ++idx) {
         if (strcmp(names[col], table->indexes[idx].column) == 0) {
           index_pos[idx] = col;
@@ -623,27 +703,64 @@ static unsigned db_sqlite_query_into_hash(DB* db, Table* table, struct TableSlot
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
       char jbuf[MAX_JSON_LEN];
       unsigned jpos = 0;
-      jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "{");
+      int wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "{");
+      if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+        errno = ENOMEM;
+        LOG_FATAL("SQLite JSON buffer overflow at start of row for table %s", table->name);
+      }
+      jpos += wrote;
       unsigned cols = 0;
       for (int col = 0; col < num_fields; ++col) {
         int col_type = sqlite3_column_type(stmt, col);
         int col_is_null = (col_type == SQLITE_NULL);
         if (db->config->table.strip_null && col_is_null) continue;
 
-        if (cols > 0) jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, ",");
-        jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\":", names[col]);
+        if (cols > 0) {
+          wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, ",");
+          if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+            errno = ENOMEM;
+            LOG_FATAL("SQLite JSON buffer overflow while separating columns for table %s", table->name);
+          }
+          jpos += wrote;
+        }
+        wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\":", names[col]);
+        if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+          errno = ENOMEM;
+          LOG_FATAL("SQLite JSON buffer overflow while writing column %s", names[col]);
+        }
+        jpos += wrote;
         if (col_is_null) {
-          jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "null");
+          wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "null");
+          if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+            errno = ENOMEM;
+            LOG_FATAL("SQLite JSON buffer overflow writing null for column %s", names[col]);
+          }
+          jpos += wrote;
         } else if (col_type == SQLITE_INTEGER || col_type == SQLITE_FLOAT) {
           const unsigned char* text = sqlite3_column_text(stmt, col);
-          jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "%s", text ? (const char*)text : "0");
+          wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "%s", text ? (const char*)text : "0");
+          if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+            errno = ENOMEM;
+            LOG_FATAL("SQLite JSON buffer overflow writing numeric for column %s", names[col]);
+          }
+          jpos += wrote;
         } else {
           const unsigned char* text = sqlite3_column_text(stmt, col);
-          jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\"", text ? (const char*)text : "");
+          wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\"", text ? (const char*)text : "");
+          if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+            errno = ENOMEM;
+            LOG_FATAL("SQLite JSON buffer overflow writing string for column %s", names[col]);
+          }
+          jpos += wrote;
         }
         ++cols;
       }
-      jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "}");
+      wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "}");
+      if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+        errno = ENOMEM;
+        LOG_FATAL("SQLite JSON buffer overflow while closing row for table %s", table->name);
+      }
+      jpos += wrote;
       ++rows;
 
       unsigned frame = arena_store_framed(slot->arena, (uint8_t*)jbuf, jpos);
@@ -706,14 +823,22 @@ static void postgres_refresh_versions(DB* db) {
     int major = lv / 10000;
     int minor = (lv / 100) % 100;
     int patch = lv % 100;
-    snprintf(db->client_version, sizeof(db->client_version), "%d.%d.%d", major, minor, patch);
+    int wrote = snprintf(db->client_version, sizeof(db->client_version), "%d.%d.%d", major, minor, patch);
+    if (wrote < 0 || (size_t)wrote >= sizeof(db->client_version)) {
+      errno = ENOMEM;
+      LOG_FATAL("PostgreSQL client version string too long");
+    }
   }
 
   db->server_version[0] = '\0';
   if (!db->postgres) return;
   const char* ver = PQparameterStatus(db->postgres, "server_version");
   if (ver && ver[0]) {
-    snprintf(db->server_version, sizeof(db->server_version), "%s", ver);
+    int wrote = snprintf(db->server_version, sizeof(db->server_version), "%s", ver);
+    if (wrote < 0 || (size_t)wrote >= sizeof(db->server_version)) {
+      errno = ENOMEM;
+      LOG_FATAL("PostgreSQL server version string too long (%s)", ver);
+    }
     return;
   }
   int sv = PQserverVersion(db->postgres);
@@ -721,7 +846,11 @@ static void postgres_refresh_versions(DB* db) {
     int major = sv / 10000;
     int minor = (sv / 100) % 100;
     int patch = sv % 100;
-    snprintf(db->server_version, sizeof(db->server_version), "%d.%d.%d", major, minor, patch);
+    int wrote = snprintf(db->server_version, sizeof(db->server_version), "%d.%d.%d", major, minor, patch);
+    if (wrote < 0 || (size_t)wrote >= sizeof(db->server_version)) {
+      errno = ENOMEM;
+      LOG_FATAL("PostgreSQL server version string too long");
+    }
   }
 }
 
@@ -730,7 +859,11 @@ static void db_postgresql_connect(DB* db) {
   char portbuf[16];
   const char* portstr = NULL;
   if (cfg->port > 0) {
-    snprintf(portbuf, sizeof(portbuf), "%u", cfg->port);
+    int wrote = snprintf(portbuf, sizeof(portbuf), "%u", cfg->port);
+    if (wrote < 0 || (size_t)wrote >= sizeof(portbuf)) {
+      errno = ENOMEM;
+      LOG_FATAL("PostgreSQL port value %u does not fit in buffer", cfg->port);
+    }
     portstr = portbuf;
   }
   PGconn* conn = PQsetdbLogin(
@@ -774,7 +907,11 @@ static unsigned db_postgresql_get_table_size(DB* db, Table* table) {
     return 0;
   }
   char sql[MAX_SQL_LEN];
-  snprintf(sql, MAX_SQL_LEN, "SELECT COUNT(*) FROM (%s) AS melian_sub", table_select_sql(table));
+  int wrote = snprintf(sql, MAX_SQL_LEN, "SELECT COUNT(*) FROM (%s) AS melian_sub", table_select_sql(table));
+  if (wrote < 0 || wrote >= MAX_SQL_LEN) {
+    errno = ENOMEM;
+    LOG_FATAL("PostgreSQL row count query too long for table %s", table->name);
+  }
   PGresult* res = PQexec(db->postgres, sql);
   if (!res) {
     LOG_WARN("Cannot run query [%s] for table %s: %s", sql, table_name(table), PQerrorMessage(db->postgres));
@@ -823,7 +960,11 @@ static unsigned db_postgresql_query_into_hash(DB* db, Table* table, struct Table
   for (unsigned idx = 0; idx < MELIAN_MAX_INDEXES; ++idx) index_pos[idx] = -1;
   for (int col = 0; col < num_fields; ++col) {
     const char* fname = PQfname(res, col);
-    snprintf(names[col], MAX_FIELD_NAME_LEN, "%s", fname ? fname : "");
+    int wrote = snprintf(names[col], MAX_FIELD_NAME_LEN, "%s", fname ? fname : "");
+    if (wrote < 0 || (size_t)wrote >= MAX_FIELD_NAME_LEN) {
+      errno = ENOMEM;
+      LOG_FATAL("PostgreSQL column name too long for table %s", table->name);
+    }
     for (unsigned idx = 0; idx < table->index_count; ++idx) {
       if (strcmp(names[col], table->indexes[idx].column) == 0) {
         index_pos[idx] = col;
@@ -837,15 +978,37 @@ static unsigned db_postgresql_query_into_hash(DB* db, Table* table, struct Table
   for (int row = 0; row < num_rows; ++row) {
     char jbuf[MAX_JSON_LEN];
     unsigned jpos = 0;
-    jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "{");
+    int wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "{");
+    if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+      errno = ENOMEM;
+      LOG_FATAL("PostgreSQL JSON buffer overflow at start of row for table %s", table->name);
+    }
+    jpos += wrote;
     unsigned cols = 0;
     for (int col = 0; col < num_fields; ++col) {
       int col_is_null = PQgetisnull(res, row, col);
       if (db->config->table.strip_null && col_is_null) continue;
-      if (cols > 0) jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, ",");
-      jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\":", names[col]);
+      if (cols > 0) {
+        wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, ",");
+        if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+          errno = ENOMEM;
+          LOG_FATAL("PostgreSQL JSON buffer overflow while separating columns for table %s", table->name);
+        }
+        jpos += wrote;
+      }
+      wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\":", names[col]);
+      if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+        errno = ENOMEM;
+        LOG_FATAL("PostgreSQL JSON buffer overflow while writing column %s", names[col]);
+      }
+      jpos += wrote;
       if (col_is_null) {
-        jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "null");
+        wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "null");
+        if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+          errno = ENOMEM;
+          LOG_FATAL("PostgreSQL JSON buffer overflow writing null for column %s", names[col]);
+        }
+        jpos += wrote;
       } else {
         const char* value = PQgetvalue(res, row, col);
         if (!value) value = "";
@@ -856,16 +1019,31 @@ static unsigned db_postgresql_query_into_hash(DB* db, Table* table, struct Table
           case 700:
           case 701:
           case 1700:
-            jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "%s", value);
+            wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "%s", value);
+            if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+              errno = ENOMEM;
+              LOG_FATAL("PostgreSQL JSON buffer overflow writing numeric value for column %s", names[col]);
+            }
+            jpos += wrote;
             break;
           default:
-            jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\"", value);
+            wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\"", value);
+            if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+              errno = ENOMEM;
+              LOG_FATAL("PostgreSQL JSON buffer overflow writing string value for column %s", names[col]);
+            }
+            jpos += wrote;
             break;
         }
       }
       ++cols;
     }
-    jpos += snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "}");
+    wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "}");
+    if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+      errno = ENOMEM;
+      LOG_FATAL("PostgreSQL JSON buffer overflow while closing row for table %s", table->name);
+    }
+    jpos += wrote;
     ++rows;
     unsigned frame = arena_store_framed(slot->arena, (uint8_t*)jbuf, jpos);
     if (frame == (unsigned)-1) {
