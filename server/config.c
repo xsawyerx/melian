@@ -244,7 +244,11 @@ static unsigned parse_table_specs(Config* config, const char* raw) {
           break;
         }
         used_ids[spec->id] = 1;
-        snprintf(spec->name, sizeof(spec->name), "%s", value);
+        int wrote = snprintf(spec->name, sizeof(spec->name), "%s", value);
+        if (wrote < 0 || (size_t)wrote >= sizeof(spec->name)) {
+          errno = ENOMEM;
+          LOG_FATAL("Table spec name '%s' exceeds %zu bytes", value, sizeof(spec->name) - 1);
+        }
       } else if (section == 1) {
         unsigned maybe = atoi(value);
         if (!maybe) {
@@ -285,7 +289,11 @@ static unsigned parse_table_specs(Config* config, const char* raw) {
           }
           used_index_ids[column_id] = 1;
           ispec->id = column_id;
-          snprintf(ispec->column, sizeof(ispec->column), "%s", trim(idx_part));
+          int wrote = snprintf(ispec->column, sizeof(ispec->column), "%s", trim(idx_part));
+          if (wrote < 0 || (size_t)wrote >= sizeof(ispec->column)) {
+            errno = ENOMEM;
+            LOG_FATAL("Column name '%s' exceeds %zu bytes", idx_part, sizeof(ispec->column) - 1);
+          }
           if (!ispec->column[0]) {
             LOG_WARN("Empty column name in index specification for table %s", spec->name);
             used_index_ids[column_id] = 0;
@@ -312,7 +320,11 @@ static unsigned parse_table_specs(Config* config, const char* raw) {
       continue;
     }
     if (!spec->select_stmt[0]) {
-      snprintf(spec->select_stmt, sizeof(spec->select_stmt), "SELECT * FROM %s", spec->name);
+      int wrote = snprintf(spec->select_stmt, sizeof(spec->select_stmt), "SELECT * FROM %s", spec->name);
+      if (wrote < 0 || (size_t)wrote >= sizeof(spec->select_stmt)) {
+        errno = ENOMEM;
+        LOG_FATAL("Default SELECT too long for table %s", spec->name);
+      }
     }
     ++config->table.table_count;
   }
@@ -333,7 +345,11 @@ static char* trim(char* s) {
 static ConfigIndexType parse_index_type(const char* value) {
   if (!value) return CONFIG_INDEX_TYPE_INT;
   char lower[16];
-  snprintf(lower, sizeof(lower), "%s", value);
+  int wrote = snprintf(lower, sizeof(lower), "%s", value);
+  if (wrote < 0 || (size_t)wrote >= sizeof(lower)) {
+    errno = ENOMEM;
+    LOG_FATAL("Driver string '%s' exceeds %zu bytes", value, sizeof(lower) - 1);
+  }
   for (char* p = lower; *p; ++p) {
     if (*p >= 'A' && *p <= 'Z') *p = *p - 'A' + 'a';
   }
@@ -344,7 +360,11 @@ static ConfigIndexType parse_index_type(const char* value) {
 static ConfigDbDriver parse_db_driver(const char* value) {
   char tmp[64];
   if (value && value[0]) {
-    snprintf(tmp, sizeof(tmp), "%s", value);
+    int wrote = snprintf(tmp, sizeof(tmp), "%s", value);
+    if (wrote < 0 || (size_t)wrote >= sizeof(tmp)) {
+      errno = ENOMEM;
+      LOG_FATAL("Database driver override '%s' exceeds %zu bytes", value, sizeof(tmp) - 1);
+    }
     char* cleaned = trim(tmp);
     for (char* p = cleaned; *p; ++p) {
       if (*p >= 'A' && *p <= 'Z') *p = *p - 'A' + 'a';
@@ -404,7 +424,11 @@ static void apply_select_overrides(Config* config) {
       LOG_WARN("Select override references unknown table %s", name);
       continue;
     }
-    snprintf(spec->select_stmt, sizeof(spec->select_stmt), "%s", stmt);
+    int wrote = snprintf(spec->select_stmt, sizeof(spec->select_stmt), "%s", stmt);
+    if (wrote < 0 || (size_t)wrote >= sizeof(spec->select_stmt)) {
+      errno = ENOMEM;
+      LOG_FATAL("Select override for table %s exceeds %zu bytes", spec->name, sizeof(spec->select_stmt) - 1);
+    }
   }
   free(copy);
 }
@@ -508,7 +532,11 @@ static unsigned parse_config_file_defaults(const char* json) {
     json_t* port = json_object_get(database, "port");
     if (json_is_integer(port)) {
       char tmp[32];
-      snprintf(tmp, sizeof(tmp), "%lld", (long long)json_integer_value(port));
+      int wrote = snprintf(tmp, sizeof(tmp), "%lld", (long long)json_integer_value(port));
+      if (wrote < 0 || (size_t)wrote >= sizeof(tmp)) {
+        errno = ENOMEM;
+        LOG_FATAL("Port value from config file exceeds %zu bytes", sizeof(tmp) - 1);
+      }
       set_override_string(&config_file_overrides.db_port, tmp);
     } else if (json_is_string(port)) {
       set_override_string(&config_file_overrides.db_port, json_string_value(port));

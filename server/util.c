@@ -1,5 +1,7 @@
+#include <errno.h>
 #include <stdio.h>
 #include <time.h>
+#include "log.h"
 #include "util.h"
 
 double now_sec(void) {
@@ -20,9 +22,12 @@ unsigned format_timestamp(unsigned epoch, char* buf, unsigned len) {
   struct tm local;
   time_t time = epoch;
   localtime_r(&time, &local);
-  unsigned l = snprintf(buf, len, "%04u/%02u/%02u %02u:%02u:%02u"
-                        ,local.tm_year + 1900, local.tm_mon + 1, local.tm_mday
-                        ,local.tm_hour, local.tm_min, local.tm_sec
-                        );
-  return l;
+  int written = snprintf(buf, len, "%04u/%02u/%02u %02u:%02u:%02u",
+                         local.tm_year + 1900, local.tm_mon + 1, local.tm_mday,
+                         local.tm_hour, local.tm_min, local.tm_sec);
+  if (written < 0 || (size_t)written >= len) {
+    errno = ENOMEM;
+    LOG_FATAL("format_timestamp buffer too small (len=%u)", len);
+  }
+  return written;
 }
