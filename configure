@@ -758,7 +758,6 @@ enable_option_checking
 enable_silent_rules
 enable_dependency_tracking
 with_mysql
-with_libevent
 with_sqlite3
 with_postgresql
 with_jansson
@@ -1410,8 +1409,6 @@ Optional Packages:
   --without-PACKAGE       do not use PACKAGE (same as --with-PACKAGE=no)
   --with-mysql=PREFIX     Prefix where MySQL/MariaDB client headers and
                           libraries can be found (auto-detect by default)
-  --with-libevent=PREFIX  Prefix where libevent headers and libraries can be
-                          found
   --with-sqlite3=PREFIX   Prefix where SQLite3 headers and libraries can be
                           found (auto-detect by default)
   --with-postgresql=PREFIX
@@ -5801,99 +5798,8 @@ fi
 
 
 
-# libevent is mandatory (server networking)
-
-# Check whether --with-libevent was given.
-if test ${with_libevent+y}
-then :
-  withval=$with_libevent;
-else case e in #(
-  e) with_libevent=auto ;;
-esac
-fi
-
-
-case $with_libevent in
-  no)
-    as_fn_error $? "libevent is required to build melian" "$LINENO" 5
-    ;;
-  auto|yes)
-    LIBEVENT_CPPFLAGS=""
-    LIBEVENT_LDFLAGS=""
-    ;;
-  *)
-    LIBEVENT_CPPFLAGS="-I$with_libevent/include"
-    LIBEVENT_LDFLAGS="-L$with_libevent/lib"
-    ;;
-esac
-
-save_CPPFLAGS="$CPPFLAGS"
-CPPFLAGS="$LIBEVENT_CPPFLAGS $CPPFLAGS"
-ac_fn_c_check_header_compile "$LINENO" "event2/event.h" "ac_cv_header_event2_event_h" "$ac_includes_default"
-if test "x$ac_cv_header_event2_event_h" = xyes
-then :
-
-else case e in #(
-  e) as_fn_error $? "event2/event.h not found; install libevent >= 2.1 or use --with-libevent=PREFIX" "$LINENO" 5 ;;
-esac
-fi
-
-CPPFLAGS="$save_CPPFLAGS"
-
-save_LDFLAGS="$LDFLAGS"
-LDFLAGS="$LIBEVENT_LDFLAGS $LDFLAGS"
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for event_base_new in -levent" >&5
-printf %s "checking for event_base_new in -levent... " >&6; }
-if test ${ac_cv_lib_event_event_base_new+y}
-then :
-  printf %s "(cached) " >&6
-else case e in #(
-  e) ac_check_lib_save_LIBS=$LIBS
-LIBS="-levent  $LIBS"
-cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-
-/* Override any GCC internal prototype to avoid an error.
-   Use char because int might match the return type of a GCC
-   builtin and then its argument prototype would still apply.
-   The 'extern "C"' is for builds by C++ compilers;
-   although this is not generally supported in C code supporting it here
-   has little cost and some practical benefit (sr 110532).  */
-#ifdef __cplusplus
-extern "C"
-#endif
-char event_base_new (void);
-int
-main (void)
-{
-return event_base_new ();
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_c_try_link "$LINENO"
-then :
-  ac_cv_lib_event_event_base_new=yes
-else case e in #(
-  e) ac_cv_lib_event_event_base_new=no ;;
-esac
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.beam \
-    conftest$ac_exeext conftest.$ac_ext
-LIBS=$ac_check_lib_save_LIBS ;;
-esac
-fi
-{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_event_event_base_new" >&5
-printf "%s\n" "$ac_cv_lib_event_event_base_new" >&6; }
-if test "x$ac_cv_lib_event_event_base_new" = xyes
-then :
-  LIBEVENT_LIBS="$LIBEVENT_LDFLAGS -levent"
-else case e in #(
-  e) as_fn_error $? "libevent not found; install libevent >= 2.1 or use --with-libevent=PREFIX" "$LINENO" 5 ;;
-esac
-fi
-
-LDFLAGS="$save_LDFLAGS"
+# libevent removed (custom event loop)
+LIBEVENT_LIBS=""
 
 
 # Optional SQLite support (prepare to link when available)

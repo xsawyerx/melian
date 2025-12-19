@@ -66,39 +66,8 @@ fi
 AC_SUBST([MYSQL_CFLAGS])
 AC_SUBST([MYSQL_LIBS])
 
-# libevent is mandatory (server networking)
-AC_ARG_WITH([libevent],
-  [AS_HELP_STRING([--with-libevent=PREFIX],
-    [Prefix where libevent headers and libraries can be found])],
-  [],
-  [with_libevent=auto])
-
-case $with_libevent in
-  no)
-    AC_MSG_ERROR([libevent is required to build melian])
-    ;;
-  auto|yes)
-    LIBEVENT_CPPFLAGS=""
-    LIBEVENT_LDFLAGS=""
-    ;;
-  *)
-    LIBEVENT_CPPFLAGS="-I$with_libevent/include"
-    LIBEVENT_LDFLAGS="-L$with_libevent/lib"
-    ;;
-esac
-
-save_CPPFLAGS="$CPPFLAGS"
-CPPFLAGS="$LIBEVENT_CPPFLAGS $CPPFLAGS"
-AC_CHECK_HEADER([event2/event.h], [],
-  [AC_MSG_ERROR([event2/event.h not found; install libevent >= 2.1 or use --with-libevent=PREFIX])])
-CPPFLAGS="$save_CPPFLAGS"
-
-save_LDFLAGS="$LDFLAGS"
-LDFLAGS="$LIBEVENT_LDFLAGS $LDFLAGS"
-AC_CHECK_LIB([event], [event_base_new],
-  [LIBEVENT_LIBS="$LIBEVENT_LDFLAGS -levent"],
-  [AC_MSG_ERROR([libevent not found; install libevent >= 2.1 or use --with-libevent=PREFIX])])
-LDFLAGS="$save_LDFLAGS"
+# libevent removed (custom event loop)
+LIBEVENT_LIBS=""
 AC_SUBST([LIBEVENT_LIBS])
 
 # Optional SQLite support (prepare to link when available)

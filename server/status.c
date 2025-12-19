@@ -3,7 +3,6 @@
 #include <time.h>
 #include <unistd.h>
 #include <sys/utsname.h>
-#include <event2/event.h>
 #include <jansson.h>
 #include "util.h"
 #include "log.h"
@@ -26,7 +25,7 @@ static json_t* json_table_arena(Arena* arena, unsigned rows);
 static json_t* json_table_hashes(Table* table, struct TableSlot* slot);
 static json_t* json_table_hash(const char* tname, Hash* hash, const char* iname);
 
-Status* status_build(struct event_base *base, DB* db) {
+Status* status_build(const char* loop_backend, DB* db) {
   Status* status = 0;
   do {
     status = calloc(1, sizeof(Status));
@@ -46,8 +45,11 @@ Status* status_build(struct event_base *base, DB* db) {
     strcpy(status->server.machine, uts.machine);
     strcpy(status->server.release, uts.release);
 
-    strcpy(status->libevent.version, event_get_version());
-    strcpy(status->libevent.method, event_base_get_method(base));
+    if (loop_backend && loop_backend[0]) {
+      snprintf(status->loop.backend, sizeof(status->loop.backend), "%s", loop_backend);
+    } else {
+      snprintf(status->loop.backend, sizeof(status->loop.backend), "unknown");
+    }
   } while (0);
 
   return status;
@@ -62,8 +64,7 @@ void status_log(Status* status) {
   LOG_INFO("Running on host %s, system %s, release %s, hardware %s",
            status->server.host, status->server.system,
            status->server.release, status->server.machine);
-  LOG_INFO("Using libevent version %s with method %s",
-           status->libevent.version, status->libevent.method);
+  LOG_INFO("Using event loop backend %s", status->loop.backend);
 
   const char* driver_name = config_db_driver_name(status->db->config->db.driver);
   const char* c = status->db->client_version;
@@ -317,31 +318,29 @@ static json_t* json_server_info(Status* status) {
 }
 
 static json_t* json_software_info(Status* status, const char* driver_key) {
-  json_t* libevent = json_pack("{s:s,s:s}",
-                               "version", status->libevent.version,
-                               "method", status->libevent.method);
-  if (!libevent) return NULL;
+  json_t* loop = json_pack("{s:s}", "backend", status->loop.backend);
+  if (!loop) return NULL;
   json_t* client = json_pack("{s:s}", "version", safe_string(status->db->client_version));
   if (!client) {
-    json_decref(libevent);
+    json_decref(loop);
     return NULL;
   }
   json_t* server = json_pack("{s:s}", "version", safe_string(status->db->server_version));
   if (!server) {
-    json_decref(libevent);
+    json_decref(loop);
     json_decref(client);
     return NULL;
   }
   json_t* driver = json_pack("{s:O,s:O}", "client", client, "server", server);
   if (!driver) {
-    json_decref(libevent);
+    json_decref(loop);
     json_decref(client);
     json_decref(server);
     return NULL;
   }
-  json_t* software = json_pack("{s:O,s:O}", "libevent", libevent, driver_key, driver);
+  json_t* software = json_pack("{s:O,s:O}", "loop", loop, driver_key, driver);
   if (!software) {
-    json_decref(libevent);
+    json_decref(loop);
     json_decref(driver);
   }
   return software;
