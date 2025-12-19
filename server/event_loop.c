@@ -178,12 +178,18 @@ int mel_loop_init(MelLoop* loop, const MelLoopConfig* cfg) {
   if (want_uring) {
     unsigned flags = IORING_SETUP_SINGLE_ISSUER | IORING_SETUP_DEFER_TASKRUN;
     int rc = io_uring_queue_init(1024, &loop->ring, flags);
+    if (rc == -EINVAL || rc == -ENOSYS || rc == -EOPNOTSUPP || rc == -EPERM) {
+      // Older kernels or locked-down environments may not support requested flags.
+      LOG_INFO("io_uring not available with optimized flags (%s), retrying without flags",
+               strerror(-rc));
+      rc = io_uring_queue_init(1024, &loop->ring, 0);
+    }
     if (rc == 0) {
       loop->backend = MEL_BACKEND_IO_URING;
       loop->uring_ready = 1;
       loop->epoll_ready = 0;
     } else {
-      LOG_WARN("io_uring unavailable (%s), falling back to epoll", strerror(-rc));
+      LOG_INFO("io_uring unavailable (%s), falling back to epoll", strerror(-rc));
       loop->uring_ready = 0;
     }
   }
@@ -266,7 +272,9 @@ int mel_loop_add(MelLoop* loop, int fd, uint32_t events, mel_loop_cb cb, void *a
 int mel_loop_mod(MelLoop* loop, int fd, uint32_t events) {
   if (fd < 0 || (size_t)fd >= loop->cap) return -1;
   struct mel_fd_slot* slot = &loop->slots[fd];
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__)
   uint32_t old_events = slot->events;
+#endif
   slot->events = events;
   if (!slot->active) return -1;
 #if defined(__linux__)
