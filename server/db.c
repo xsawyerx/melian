@@ -265,13 +265,13 @@ static void mysql_refresh_versions(DB* db) {
 
   db->server_version[0] = '\0';
   if (db->mysql) {
-    const char* s = mysql_get_server_info((MYSQL*) db->mysql);
+    const char* s = mysql_get_server_info(db->mysql);
     if (s) snprintf(db->server_version, sizeof(db->server_version), "%s", s);
   }
 }
 
 static void db_mysql_connect(DB* db) {
-  MYSQL* handle = (MYSQL*) mysql_init(NULL);
+  MYSQL* handle = mysql_init(NULL);
   if (!handle) {
     LOG_WARN("Could not initialize MySQL client");
     return;
@@ -296,7 +296,7 @@ static void db_mysql_connect(DB* db) {
 static void db_mysql_disconnect(DB* db) {
   if (!db->mysql) return;
   ConfigDb* cfg = &db->config->db;
-  mysql_close((MYSQL*) db->mysql);
+  mysql_close(db->mysql);
   db->mysql = 0;
   LOG_INFO("Disconnected from MySQL server at %s:%u", cfg->host, cfg->port);
 }
@@ -321,12 +321,12 @@ static unsigned db_mysql_get_table_size(DB* db, Table* table) {
       break;
     }
     snprintf(sql, sizeof(sql), "SELECT COUNT(*) FROM (%s) AS melian_sub", select_sql);
-    if (mysql_query((MYSQL*) db->mysql, sql)) {
+    if (mysql_query(db->mysql, sql)) {
       LOG_WARN("Cannot run query [%s] for table %s", sql, table_name(table));
       break;
     }
 
-    result = mysql_store_result((MYSQL*) db->mysql);
+    result = mysql_store_result(db->mysql);
     if (!result) {
       LOG_WARN("Cannot store MySQL result for COUNT query for table %s", table_name(table));
       break;
@@ -371,12 +371,12 @@ static unsigned db_mysql_query_into_hash(DB* db, Table* table, struct TableSlot*
     double t0 = now_sec();
     LOG_DEBUG("Fetching from table %s", table_name(table));
     const char* query = table_select_sql(table);
-    if (mysql_query((MYSQL*) db->mysql, query)) {
+    if (mysql_query(db->mysql, query)) {
       LOG_WARN("Cannot run query [%s] for table %s", query, table_name(table));
       break;
     }
 
-    result = mysql_store_result((MYSQL*) db->mysql);
+    result = mysql_store_result(db->mysql);
     if (!result) {
       LOG_WARN("Cannot store MySQL result for SELECT query for table %s", table_name(table));
       break;

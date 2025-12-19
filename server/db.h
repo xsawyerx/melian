@@ -15,7 +15,7 @@ struct Table;
 struct TableSlot;
 
 #ifdef HAVE_MYSQL
-typedef struct MYSQL MYSQL;
+#include <mysql/mysql.h>
 #endif
 #ifdef HAVE_SQLITE3
 typedef struct sqlite3 sqlite3;

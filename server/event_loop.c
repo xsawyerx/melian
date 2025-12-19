@@ -41,6 +41,7 @@ static int loop_resize(MelLoop* loop, size_t need_fd);
 #    include <liburing.h>
 #  endif
 
+#  ifdef MELIAN_HAVE_IO_URING
 static short to_poll_mask(uint32_t events) {
   short mask = 0;
   if (events & MEL_LOOP_READ) mask |= POLLIN;
@@ -56,6 +57,7 @@ static uint32_t from_poll_mask(uint32_t res) {
   if (res & POLLERR) ev |= MEL_LOOP_ERR;
   return ev;
 }
+#  endif
 
 static int add_epoll(MelLoop* loop, int fd, uint32_t events) {
   struct epoll_event ev;
@@ -135,6 +137,7 @@ const char* mel_loop_backend_name(const MelLoop* loop) {
   }
 }
 
+static int set_nonblock(int fd) __attribute__((unused));
 static int set_nonblock(int fd) {
   int flags = fcntl(fd, F_GETFL, 0);
   if (flags < 0) return -1;
