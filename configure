@@ -652,6 +652,8 @@ POSTGRESQL_LIBS
 POSTGRESQL_CFLAGS
 SQLITE_LIBS
 SQLITE_CFLAGS
+IOURING_CFLAGS
+IOURING_LIBS
 LIBEVENT_LIBS
 MYSQL_LIBS
 MYSQL_CFLAGS
@@ -5800,6 +5802,82 @@ fi
 
 # libevent removed (custom event loop)
 LIBEVENT_LIBS=""
+
+
+# io_uring (Linux-only, optional)
+IOURING_LIBS=""
+IOURING_CFLAGS=""
+case $host_os in
+  linux*)
+    ac_fn_c_check_header_compile "$LINENO" "liburing.h" "ac_cv_header_liburing_h" "$ac_includes_default"
+if test "x$ac_cv_header_liburing_h" = xyes
+then :
+  have_uring_h=yes
+else case e in #(
+  e) have_uring_h=no ;;
+esac
+fi
+
+    if test "x$have_uring_h" = "xyes"; then
+      { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for io_uring_queue_init in -luring" >&5
+printf %s "checking for io_uring_queue_init in -luring... " >&6; }
+if test ${ac_cv_lib_uring_io_uring_queue_init+y}
+then :
+  printf %s "(cached) " >&6
+else case e in #(
+  e) ac_check_lib_save_LIBS=$LIBS
+LIBS="-luring  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.
+   The 'extern "C"' is for builds by C++ compilers;
+   although this is not generally supported in C code supporting it here
+   has little cost and some practical benefit (sr 110532).  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char io_uring_queue_init (void);
+int
+main (void)
+{
+return io_uring_queue_init ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"
+then :
+  ac_cv_lib_uring_io_uring_queue_init=yes
+else case e in #(
+  e) ac_cv_lib_uring_io_uring_queue_init=no ;;
+esac
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS ;;
+esac
+fi
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_uring_io_uring_queue_init" >&5
+printf "%s\n" "$ac_cv_lib_uring_io_uring_queue_init" >&6; }
+if test "x$ac_cv_lib_uring_io_uring_queue_init" = xyes
+then :
+  IOURING_LIBS="-luring";
+printf "%s\n" "#define MELIAN_HAVE_IO_URING 1" >>confdefs.h
+
+else case e in #(
+  e) IOURING_LIBS="" ;;
+esac
+fi
+
+    fi
+    ;;
+  *)
+    ;;
+esac
+
 
 
 # Optional SQLite support (prepare to link when available)

@@ -70,6 +70,24 @@ AC_SUBST([MYSQL_LIBS])
 LIBEVENT_LIBS=""
 AC_SUBST([LIBEVENT_LIBS])
 
+# io_uring (Linux-only, optional)
+IOURING_LIBS=""
+IOURING_CFLAGS=""
+case $host_os in
+  linux*)
+    AC_CHECK_HEADER([liburing.h], [have_uring_h=yes], [have_uring_h=no])
+    if test "x$have_uring_h" = "xyes"; then
+      AC_CHECK_LIB([uring], [io_uring_queue_init],
+        [IOURING_LIBS="-luring"; AC_DEFINE([MELIAN_HAVE_IO_URING], [1], [Define if liburing is available])],
+        [IOURING_LIBS=""])
+    fi
+    ;;
+  *)
+    ;;
+esac
+AC_SUBST([IOURING_LIBS])
+AC_SUBST([IOURING_CFLAGS])
+
 # Optional SQLite support (prepare to link when available)
 AC_ARG_WITH([sqlite3],
   [AS_HELP_STRING([--with-sqlite3=PREFIX],

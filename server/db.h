@@ -15,7 +15,7 @@ struct Table;
 struct TableSlot;
 
 #ifdef HAVE_MYSQL
-struct MYSQL;
+typedef struct MYSQL MYSQL;
 #endif
 #ifdef HAVE_SQLITE3
 typedef struct sqlite3 sqlite3;
@@ -28,7 +28,7 @@ typedef struct pg_conn PGconn;
 typedef struct DB {
   Config *config;
 #ifdef HAVE_MYSQL
-  struct MYSQL *mysql;
+  MYSQL *mysql;
   unsigned mysql_initialized;
 #endif
 #ifdef HAVE_SQLITE3

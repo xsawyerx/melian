@@ -312,7 +312,9 @@ static unsigned parse_table_specs(Config* config, const char* raw) {
       continue;
     }
     if (!spec->select_stmt[0]) {
-      snprintf(spec->select_stmt, sizeof(spec->select_stmt), "SELECT * FROM %s", spec->name);
+      char name_copy[MELIAN_MAX_NAME_LEN];
+      snprintf(name_copy, sizeof(name_copy), "%s", spec->name);
+      snprintf(spec->select_stmt, sizeof(spec->select_stmt), "SELECT * FROM %s", name_copy);
     }
     ++config->table.table_count;
   }

@@ -314,7 +314,13 @@ static unsigned db_mysql_get_table_size(DB* db, Table* table) {
     const char* select_sql = table_select_sql(table);
     LOG_DEBUG("Counting rows from table %s", table_name(table));
     char sql[MAX_SQL_LEN];
-    snprintf(sql, MAX_SQL_LEN, "SELECT COUNT(*) FROM (%s) AS melian_sub", select_sql);
+    size_t sel_len = strlen(select_sql);
+    if (sel_len + 32 >= sizeof(sql)) {
+      LOG_WARN("SELECT statement too large (%zu bytes) for COUNT wrapper (max %zu) for table %s",
+               sel_len, sizeof(sql), table_name(table));
+      break;
+    }
+    snprintf(sql, sizeof(sql), "SELECT COUNT(*) FROM (%s) AS melian_sub", select_sql);
     if (mysql_query((MYSQL*) db->mysql, sql)) {
       LOG_WARN("Cannot run query [%s] for table %s", sql, table_name(table));
       break;
