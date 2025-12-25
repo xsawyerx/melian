@@ -1,0 +1,44 @@
+{
+    "database": {
+        "driver": "sqlite",
+        "name": "melian",
+        "host": "localhost",
+        "port": 9000,
+        "username": "melian",
+        "password": "melian",
+        "sqlite": {
+            "filename": "/data/melian.db"
+        }
+    },
+    "tables": [
+        {
+            "name": "table1",
+            "id": 0,
+            "period": 60,
+            "indexes": [
+                {
+                    "id": 0,
+                    "column": "id",
+                    "type": "int"
+                }
+            ]
+        },
+        {
+            "name": "table2",
+            "id": 1,
+            "period": 60,
+            "indexes": [
+                {
+                    "id": 0,
+                    "column": "id",
+                    "type": "int"
+                },
+                {
+                    "id": 1,
+                    "column": "hostname",
+                    "type": "string"
+                }     
+            ]
+        }
+    ]
+}

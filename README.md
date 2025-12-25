@@ -218,3 +218,40 @@ $ ./melian-client -h
 * `-s`: Request server statistics
 * `-q`: Quit the server
 * `-v`: Verbose logging
+
+## Docker images
+
+The provided `Dockerfile` builds a self-contained image (SQLite + bundled clients). Build it locally:
+
+```bash
+docker build -t melian:latest .
+```
+
+### With UNIX socket (default)
+
+This keeps the UNIX domain socket enabled and bind-mounts it to the host so native clients can connect:
+
+```bash
+mkdir -p $(pwd)/socket
+docker run --rm \
+  -p 42123:42123 \
+  -v $(pwd)/socket:/run/melian \
+  melian:latest
+```
+
+The server listens on `/run/melian/melian.sock` inside the container. On the host you’ll find the mirrored socket at `./socket/melian.sock`.
+
+### TCP only (disable UNIX socket)
+
+To accept TCP connections and skip the UNIX socket, unset `MELIAN_SOCKET_PATH` and map the port:
+
+```bash
+docker run --rm \
+  -e MELIAN_SOCKET_PATH= \
+  -e MELIAN_SOCKET_HOST=0.0.0.0 \
+  -e MELIAN_SOCKET_PORT=42123 \
+  -p 42123:42123 \
+  melian:latest
+```
+
+Clients can then connect to `tcp://localhost:42123`.
