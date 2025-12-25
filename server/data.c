@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -32,15 +33,29 @@ Table* table_build(const ConfigTableSpec* spec, unsigned arena_cap) {
     }
 
     table->table_id = spec->id;
-    snprintf(table->name, sizeof(table->name), "%s", spec->name);
+    int len = snprintf(table->name, sizeof(table->name), "%s", spec->name);
+    if (len < 0 || (size_t)len >= sizeof(table->name)) {
+      errno = ENOMEM;
+      LOG_FATAL("Table name '%s' exceeds %zu bytes", spec->name, sizeof(table->name) - 1);
+    }
     table->period = spec->period ? spec->period : DATA_REFRESH_PERIOD;
-    snprintf(table->select_stmt, sizeof(table->select_stmt), "%s", spec->select_stmt);
+    len = snprintf(table->select_stmt, sizeof(table->select_stmt), "%s", spec->select_stmt);
+    if (len < 0 || (size_t)len >= sizeof(table->select_stmt)) {
+      errno = ENOMEM;
+      LOG_FATAL("SELECT statement for table %s exceeds %zu bytes", spec->name, sizeof(table->select_stmt) - 1);
+    }
     table->index_count = spec->index_count;
     for (unsigned idx = 0; idx < spec->index_count; ++idx) {
       table->indexes[idx].id = spec->indexes[idx].id;
       table->indexes[idx].type = spec->indexes[idx].type;
-      snprintf(table->indexes[idx].column, sizeof(table->indexes[idx].column),
-               "%s", spec->indexes[idx].column);
+      len = snprintf(table->indexes[idx].column, sizeof(table->indexes[idx].column),
+                     "%s", spec->indexes[idx].column);
+      if (len < 0 || (size_t)len >= sizeof(table->indexes[idx].column)) {
+        errno = ENOMEM;
+        LOG_FATAL("Column name '%s' for table %s exceeds %zu bytes",
+                  spec->indexes[idx].column, spec->name,
+                  sizeof(table->indexes[idx].column) - 1);
+      }
     }
 
     for (unsigned b = 0; b < 2; ++b) {

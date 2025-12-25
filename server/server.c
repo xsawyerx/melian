@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <errno.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -148,8 +149,11 @@ unsigned server_listen(Server* server) {
     struct sockaddr_un sun;
     memset(&sun, 0, sizeof(sun));
     sun.sun_family = AF_UNIX;
-    /* TODO: Check for truncation: if (... >= (int)sizeof(sun.sun_path)) {...} */
-    snprintf(sun.sun_path, sizeof(sun.sun_path), "%s", path);
+    int wrote = snprintf(sun.sun_path, sizeof(sun.sun_path), "%s", path);
+    if (wrote < 0 || (size_t)wrote >= sizeof(sun.sun_path)) {
+      errno = ENOMEM;
+      LOG_FATAL("UNIX socket path '%s' exceeds %zu bytes", path, sizeof(sun.sun_path) - 1);
+    }
     server->listener = evconnlistener_new_bind(server->base, on_accept, server,
                                                LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE, -1,
                                                (struct sockaddr*)&sun, sizeof(sun));
