@@ -682,23 +682,25 @@ static char* build_tables_override(json_t* tables) {
   for (size_t i = 0; i < count; ++i) {
     json_t* table = json_array_get(tables, i);
     if (!json_is_object(table)) continue;
-    json_t* name_val = json_object_get(table, "name");
-    json_t* id_val = json_object_get(table, "id");
-    json_t* indexes = json_object_get(table, "indexes");
-    if (!json_is_string(name_val) || !json_is_integer(id_val) ||
-        !json_is_array(indexes) || json_array_size(indexes) == 0) {
+    const char* name = NULL;
+    json_int_t id_raw = 0;
+    json_t* indexes = NULL;
+    if (json_unpack(table, "{s:s,s:I,s:o}",
+                    "name", &name, "id", &id_raw, "indexes", &indexes) != 0) {
       continue;
     }
-    const char* name = json_string_value(name_val);
-    unsigned id = (unsigned)json_integer_value(id_val);
+    if (!json_is_array(indexes) || json_array_size(indexes) == 0) {
+      continue;
+    }
+    unsigned id = (unsigned)id_raw;
     if (len) {
       if (!sb_append(&buf, &len, &cap, ",")) goto fail;
     }
     if (!sb_append(&buf, &len, &cap, "%s#%u", name, id)) goto fail;
 
-    json_t* period_val = json_object_get(table, "period");
-    if (json_is_integer(period_val)) {
-      unsigned period = (unsigned)json_integer_value(period_val);
+    json_int_t period_raw = 0;
+    if (json_unpack(table, "{s?I}", "period", &period_raw) == 0) {
+      unsigned period = (unsigned)period_raw;
       if (period && !sb_append(&buf, &len, &cap, "|%u", period)) goto fail;
     }
 
@@ -708,14 +710,17 @@ static char* build_tables_override(json_t* tables) {
     for (size_t k = 0; k < idx_count; ++k) {
       json_t* idx = json_array_get(indexes, k);
       if (!json_is_object(idx)) continue;
-      json_t* col_val = json_object_get(idx, "column");
-      json_t* idx_id_val = json_object_get(idx, "id");
-      if (!json_is_string(col_val) || !json_is_integer(idx_id_val)) continue;
-      const char* column = json_string_value(col_val);
-      unsigned idx_id = (unsigned)json_integer_value(idx_id_val);
+      const char* column = NULL;
+      json_int_t idx_id_raw = 0;
+      if (json_unpack(idx, "{s:s,s:I}",
+                      "column", &column, "id", &idx_id_raw) != 0) {
+        continue;
+      }
+      unsigned idx_id = (unsigned)idx_id_raw;
       const char* type_raw = NULL;
-      json_t* type_val = json_object_get(idx, "type");
-      if (json_is_string(type_val)) type_raw = json_string_value(type_val);
+      if (json_unpack(idx, "{s?s}", "type", &type_raw) != 0) {
+        type_raw = NULL;
+      }
       if (wrote_index) {
         if (!sb_append(&buf, &len, &cap, ";")) goto fail;
       }
