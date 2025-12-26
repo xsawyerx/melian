@@ -125,6 +125,16 @@ Set the database driver explicitly and adjust shared settings via config file or
             "filename": "/var/lib/melian.db"
         }
     },
+    "socket": {
+        "path": "/tmp/melian.sock"
+    },
+    "table": {
+        "period": 60,
+        "selects": {
+            "table1": "SELECT id, email FROM table1",
+            "table2": "SELECT id, hostname FROM table2 WHERE active = 1"
+        }
+    },
     "tables": [
         {
             "name": "table1",
@@ -186,12 +196,23 @@ These will override any values in the config file.
 * `MELIAN_DB_USER` (config: `database.username`): username (default `melian`)
 * `MELIAN_DB_PASSWORD` (config: `database.password`): password (default `meliansecret`)
 * `MELIAN_SQLITE_FILENAME` (config: `database.sqlite.filename`): SQLite database filename (default `/etc/melian.db`)
-* `MELIAN_TABLE_SELECTS`: semicolon-separated overrides (`table=SELECT ...;table2=SELECT ...`) to customize per-table SELECT statements
-* `MELIAN_SOCKET_PATH`: `/tmp/melian.sock` (set to an empty string to disable the UNIX socket and enable TCP)
+* `MELIAN_SOCKET_PATH` (config: `socket.path`): `/tmp/melian.sock` (set to an empty string to disable the UNIX socket and enable TCP)
+* `MELIAN_TABLE_PERIOD` (config: `table.period`): `60` seconds (reload interval)
+* `MELIAN_TABLE_SELECTS` (config: `table.selects`): semicolon-separated overrides (`table=SELECT ...;table2=SELECT ...`) to customize per-table SELECT statements
 * `MELIAN_TABLE_TABLES` (config: `tables`): `table1,table2`
-* `MELIAN_TABLE_PERIOD`: `60` seconds (reload interval)
 
 When using `MELIAN_TABLE_SELECTS`, ensure each entry follows `table_name=SELECT ...` and separate multiple entries with `;`. The SQL is used verbatim, so double-check statements for the intended tables.
+
+In JSON, use `table.selects` with a mapping of table names to their statements:
+
+```json
+"table": {
+  "selects": {
+    "table1": "SELECT ...",
+    "table2": "SELECT ..."
+  }
+}
+```
 
 2. Use the test client
 

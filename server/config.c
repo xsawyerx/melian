@@ -32,6 +32,7 @@ static void set_override_string(char** field, const char* value);
 static void set_override_owned(char** field, char* value);
 static int sb_append(char** buf, size_t* len, size_t* cap, const char* fmt, ...);
 static char* build_tables_override(json_t* tables);
+static char* build_selects_override(json_t* selects);
 
 static char* config_file_path = NULL;
 static ConfigFileSource config_file_source = CONFIG_FILE_SOURCE_DEFAULT;
@@ -43,6 +44,9 @@ struct ConfigFileOverrides {
   char* db_user;
   char* db_password;
   char* sqlite_filename;
+  char* socket_path;
+  char* table_period;
+  char* table_selects;
   char* table_tables;
 };
 static struct ConfigFileOverrides config_file_overrides = {0};
@@ -376,7 +380,7 @@ static ConfigTableSpec* find_table_spec(Config* config, const char* name) {
 }
 
 static void apply_select_overrides(Config* config) {
-  const char* raw = getenv("MELIAN_TABLE_SELECTS");
+  const char* raw = get_config_string("MELIAN_TABLE_SELECTS", NULL);
   if (!raw || !raw[0]) return;
   char* copy = strdup(raw);
   if (!copy) {
@@ -534,6 +538,33 @@ static unsigned parse_config_file_defaults(const char* json) {
     }
   }
 
+  json_t* socket = json_object_get(root, "socket");
+  if (json_is_object(socket)) {
+    json_t* path = json_object_get(socket, "path");
+    if (json_is_string(path)) {
+      set_override_string(&config_file_overrides.socket_path, json_string_value(path));
+    }
+  }
+
+  json_t* table = json_object_get(root, "table");
+  if (json_is_object(table)) {
+    json_t* period = json_object_get(table, "period");
+    if (json_is_integer(period)) {
+      char tmp[32];
+      snprintf(tmp, sizeof(tmp), "%lld", (long long)json_integer_value(period));
+      set_override_string(&config_file_overrides.table_period, tmp);
+    } else if (json_is_string(period)) {
+      set_override_string(&config_file_overrides.table_period, json_string_value(period));
+    }
+    json_t* selects = json_object_get(table, "selects");
+    if (json_is_object(selects) && json_object_size(selects) > 0) {
+      char* select_spec = build_selects_override(selects);
+      if (select_spec) {
+        set_override_owned(&config_file_overrides.table_selects, select_spec);
+      }
+    }
+  }
+
   json_t* tables = json_object_get(root, "tables");
   if (json_is_array(tables) && json_array_size(tables) > 0) {
     char* spec = build_tables_override(tables);
@@ -554,6 +585,9 @@ static void clear_config_file_overrides(void) {
   set_override_owned(&config_file_overrides.db_user, NULL);
   set_override_owned(&config_file_overrides.db_password, NULL);
   set_override_owned(&config_file_overrides.sqlite_filename, NULL);
+  set_override_owned(&config_file_overrides.socket_path, NULL);
+  set_override_owned(&config_file_overrides.table_period, NULL);
+  set_override_owned(&config_file_overrides.table_selects, NULL);
   set_override_owned(&config_file_overrides.table_tables, NULL);
 }
 
@@ -566,6 +600,9 @@ static const char* config_file_default_for(const char* name) {
   if (strcmp(name, "MELIAN_DB_USER") == 0) return config_file_overrides.db_user;
   if (strcmp(name, "MELIAN_DB_PASSWORD") == 0) return config_file_overrides.db_password;
   if (strcmp(name, "MELIAN_SQLITE_FILENAME") == 0) return config_file_overrides.sqlite_filename;
+  if (strcmp(name, "MELIAN_SOCKET_PATH") == 0) return config_file_overrides.socket_path;
+  if (strcmp(name, "MELIAN_TABLE_PERIOD") == 0) return config_file_overrides.table_period;
+  if (strcmp(name, "MELIAN_TABLE_SELECTS") == 0) return config_file_overrides.table_selects;
   if (strcmp(name, "MELIAN_TABLE_TABLES") == 0) return config_file_overrides.table_tables;
   return NULL;
 }
@@ -617,23 +654,25 @@ static char* build_tables_override(json_t* tables) {
   for (size_t i = 0; i < count; ++i) {
     json_t* table = json_array_get(tables, i);
     if (!json_is_object(table)) continue;
-    json_t* name_val = json_object_get(table, "name");
-    json_t* id_val = json_object_get(table, "id");
-    json_t* indexes = json_object_get(table, "indexes");
-    if (!json_is_string(name_val) || !json_is_integer(id_val) ||
-        !json_is_array(indexes) || json_array_size(indexes) == 0) {
+    const char* name = NULL;
+    json_int_t id_raw = 0;
+    json_t* indexes = NULL;
+    if (json_unpack(table, "{s:s,s:I,s:o}",
+                    "name", &name, "id", &id_raw, "indexes", &indexes) != 0) {
       continue;
     }
-    const char* name = json_string_value(name_val);
-    unsigned id = (unsigned)json_integer_value(id_val);
+    if (!json_is_array(indexes) || json_array_size(indexes) == 0) {
+      continue;
+    }
+    unsigned id = (unsigned)id_raw;
     if (len) {
       if (!sb_append(&buf, &len, &cap, ",")) goto fail;
     }
     if (!sb_append(&buf, &len, &cap, "%s#%u", name, id)) goto fail;
 
-    json_t* period_val = json_object_get(table, "period");
-    if (json_is_integer(period_val)) {
-      unsigned period = (unsigned)json_integer_value(period_val);
+    json_int_t period_raw = 0;
+    if (json_unpack(table, "{s?I}", "period", &period_raw) == 0) {
+      unsigned period = (unsigned)period_raw;
       if (period && !sb_append(&buf, &len, &cap, "|%u", period)) goto fail;
     }
 
@@ -643,14 +682,17 @@ static char* build_tables_override(json_t* tables) {
     for (size_t k = 0; k < idx_count; ++k) {
       json_t* idx = json_array_get(indexes, k);
       if (!json_is_object(idx)) continue;
-      json_t* col_val = json_object_get(idx, "column");
-      json_t* idx_id_val = json_object_get(idx, "id");
-      if (!json_is_string(col_val) || !json_is_integer(idx_id_val)) continue;
-      const char* column = json_string_value(col_val);
-      unsigned idx_id = (unsigned)json_integer_value(idx_id_val);
+      const char* column = NULL;
+      json_int_t idx_id_raw = 0;
+      if (json_unpack(idx, "{s:s,s:I}",
+                      "column", &column, "id", &idx_id_raw) != 0) {
+        continue;
+      }
+      unsigned idx_id = (unsigned)idx_id_raw;
       const char* type_raw = NULL;
-      json_t* type_val = json_object_get(idx, "type");
-      if (json_is_string(type_val)) type_raw = json_string_value(type_val);
+      if (json_unpack(idx, "{s?s}", "type", &type_raw) != 0) {
+        type_raw = NULL;
+      }
       if (wrote_index) {
         if (!sb_append(&buf, &len, &cap, ";")) goto fail;
       }
@@ -672,6 +714,32 @@ static char* build_tables_override(json_t* tables) {
     if (!wrote_index) {
       LOG_WARN("Table %s missing indexes in config file", name);
     }
+  }
+  if (!buf) return NULL;
+  buf[len] = '\0';
+  return buf;
+
+fail:
+  if (buf) free(buf);
+  return NULL;
+}
+
+static char* build_selects_override(json_t* selects) {
+  char* buf = NULL;
+  size_t len = 0;
+  size_t cap = 0;
+  unsigned wrote_entry = 0;
+  const char* key = NULL;
+  json_t* value = NULL;
+  json_object_foreach(selects, key, value) {
+    if (!key || !key[0] || !json_is_string(value)) continue;
+    const char* stmt = json_string_value(value);
+    if (!stmt || !stmt[0]) continue;
+    if (wrote_entry) {
+      if (!sb_append(&buf, &len, &cap, ";")) goto fail;
+    }
+    if (!sb_append(&buf, &len, &cap, "%s=%s", key, stmt)) goto fail;
+    wrote_entry = 1;
   }
   if (!buf) return NULL;
   buf[len] = '\0';
