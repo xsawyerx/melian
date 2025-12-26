@@ -3,13 +3,11 @@
 // A Server embodies the Melian server.
 
 struct conn_state_t;
+struct EventLoop;
 
 // A running server.
 typedef struct Server {
-  struct event_base *base;
-  struct evconnlistener *listener;
-  struct event *tev;
-  struct event *sev;
+  struct EventLoop* loop;
   struct Config* config;
   struct Status* status;
   struct Data* data;

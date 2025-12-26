@@ -9,7 +9,6 @@ enum {
   MAX_STR_LEN = 1024,
 };
 
-struct event_base;
 struct Config;
 struct DB;
 struct Data;
@@ -44,7 +43,7 @@ typedef struct Status {
   StatusJson json;
 } Status;
 
-Status* status_build(struct event_base *base, struct DB* db);
+Status* status_build(const char* loop_version, const char* loop_method, struct DB* db);
 void status_destroy(Status* status);
 void status_log(Status* status);
 void status_json(Status* status, struct Config* config, struct Data* data);

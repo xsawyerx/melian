@@ -1,10 +1,10 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include <time.h>
 #include <unistd.h>
 #include <sys/utsname.h>
-#include <event2/event.h>
 #include <jansson.h>
 #include "util.h"
 #include "log.h"
@@ -27,7 +27,7 @@ static json_t* json_table_arena(Arena* arena, unsigned rows);
 static json_t* json_table_hashes(Table* table, struct TableSlot* slot);
 static json_t* json_table_hash(const char* tname, Hash* hash, const char* iname);
 
-Status* status_build(struct event_base *base, DB* db) {
+Status* status_build(const char* loop_version, const char* loop_method, DB* db) {
   Status* status = 0;
   do {
     status = calloc(1, sizeof(Status));
@@ -47,8 +47,10 @@ Status* status_build(struct event_base *base, DB* db) {
     strcpy(status->server.machine, uts.machine);
     strcpy(status->server.release, uts.release);
 
-    strcpy(status->libevent.version, event_get_version());
-    strcpy(status->libevent.method, event_base_get_method(base));
+    snprintf(status->libevent.version, sizeof(status->libevent.version), "%s",
+             loop_version ? loop_version : "unknown");
+    snprintf(status->libevent.method, sizeof(status->libevent.method), "%s",
+             loop_method ? loop_method : "unknown");
   } while (0);
 
   return status;
@@ -63,8 +65,8 @@ void status_log(Status* status) {
   LOG_INFO("Running on host %s, system %s, release %s, hardware %s",
            status->server.host, status->server.system,
            status->server.release, status->server.machine);
-  LOG_INFO("Using libevent version %s with method %s",
-           status->libevent.version, status->libevent.method);
+  LOG_INFO("Using event loop backend %s version %s",
+           status->libevent.method, status->libevent.version);
 
   const char* driver_name = config_db_driver_name(status->db->config->db.driver);
   const char* c = status->db->client_version;

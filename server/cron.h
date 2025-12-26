@@ -4,8 +4,6 @@
 // This thread performs the work of reloading data from MySQL.
 
 typedef struct Cron {
-  struct event_base *base;
-  struct event *tick;
   int pair[2];
   struct Server* server;
   void* thread;

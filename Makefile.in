@@ -91,6 +91,8 @@ POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
 bin_PROGRAMS = melian-server$(EXEEXT) melian-client$(EXEEXT)
+@ENABLE_URING_TRUE@am__append_1 = server/event_loop_uring.c
+@ENABLE_URING_FALSE@am__append_2 = server/event_loop_libevent.c
 subdir = .
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/configure.ac
@@ -112,17 +114,27 @@ melian_client_OBJECTS = $(am_melian_client_OBJECTS)
 am__DEPENDENCIES_1 =
 melian_client_DEPENDENCIES = $(am__DEPENDENCIES_1) \
 	$(am__DEPENDENCIES_1)
+am__melian_server_SOURCES_DIST = server/util.c server/log.c \
+	server/arena.c server/xxhash.c server/hash.c server/server.c \
+	server/config.c server/status.c server/data.c server/db.c \
+	server/cron.c server/melian-server.c server/event_loop_uring.c \
+	server/event_loop_libevent.c
+@ENABLE_URING_TRUE@am__objects_1 = server/event_loop_uring.$(OBJEXT)
+@ENABLE_URING_FALSE@am__objects_2 =  \
+@ENABLE_URING_FALSE@	server/event_loop_libevent.$(OBJEXT)
 am_melian_server_OBJECTS = server/util.$(OBJEXT) server/log.$(OBJEXT) \
 	server/arena.$(OBJEXT) server/xxhash.$(OBJEXT) \
 	server/hash.$(OBJEXT) server/server.$(OBJEXT) \
 	server/config.$(OBJEXT) server/status.$(OBJEXT) \
 	server/data.$(OBJEXT) server/db.$(OBJEXT) \
-	server/cron.$(OBJEXT) server/melian-server.$(OBJEXT)
+	server/cron.$(OBJEXT) server/melian-server.$(OBJEXT) \
+	$(am__objects_1) $(am__objects_2)
 melian_server_OBJECTS = $(am_melian_server_OBJECTS)
 melian_server_DEPENDENCIES = $(am__DEPENDENCIES_1) \
 	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
 	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
-	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1)
+	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
+	$(am__DEPENDENCIES_1)
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
 am__v_P_0 = false
@@ -142,10 +154,11 @@ am__depfiles_remade = clients/c/$(DEPDIR)/client.Po \
 	clients/c/$(DEPDIR)/melian-client.Po server/$(DEPDIR)/arena.Po \
 	server/$(DEPDIR)/config.Po server/$(DEPDIR)/cron.Po \
 	server/$(DEPDIR)/data.Po server/$(DEPDIR)/db.Po \
-	server/$(DEPDIR)/hash.Po server/$(DEPDIR)/log.Po \
-	server/$(DEPDIR)/melian-server.Po server/$(DEPDIR)/server.Po \
-	server/$(DEPDIR)/status.Po server/$(DEPDIR)/util.Po \
-	server/$(DEPDIR)/xxhash.Po
+	server/$(DEPDIR)/event_loop_libevent.Po \
+	server/$(DEPDIR)/event_loop_uring.Po server/$(DEPDIR)/hash.Po \
+	server/$(DEPDIR)/log.Po server/$(DEPDIR)/melian-server.Po \
+	server/$(DEPDIR)/server.Po server/$(DEPDIR)/status.Po \
+	server/$(DEPDIR)/util.Po server/$(DEPDIR)/xxhash.Po
 am__mv = mv -f
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
@@ -160,7 +173,8 @@ am__v_CCLD_ = $(am__v_CCLD_@AM_DEFAULT_V@)
 am__v_CCLD_0 = @echo "  CCLD    " $@;
 am__v_CCLD_1 = 
 SOURCES = $(melian_client_SOURCES) $(melian_server_SOURCES)
-DIST_SOURCES = $(melian_client_SOURCES) $(melian_server_SOURCES)
+DIST_SOURCES = $(melian_client_SOURCES) \
+	$(am__melian_server_SOURCES_DIST)
 am__can_run_installinfo = \
   case $$AM_UPDATE_INFO_DIR in \
     n|no|NO) false;; \
@@ -269,6 +283,8 @@ SHELL = @SHELL@
 SQLITE_CFLAGS = @SQLITE_CFLAGS@
 SQLITE_LIBS = @SQLITE_LIBS@
 STRIP = @STRIP@
+URING_CFLAGS = @URING_CFLAGS@
+URING_LIBS = @URING_LIBS@
 VERSION = @VERSION@
 abs_builddir = @abs_builddir@
 abs_srcdir = @abs_srcdir@
@@ -332,23 +348,14 @@ AM_CPPFLAGS = \
 	$(MYSQL_CFLAGS) \
 	$(SQLITE_CFLAGS) \
 	$(POSTGRESQL_CFLAGS) \
-	$(PLATFORM_CPPFLAGS)
+	$(PLATFORM_CPPFLAGS) \
+	$(URING_CFLAGS)
 
 AM_CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -g
-melian_server_SOURCES = \
-	server/util.c \
-	server/log.c \
-	server/arena.c \
-	server/xxhash.c \
-	server/hash.c \
-	server/server.c \
-	server/config.c \
-	server/status.c \
-	server/data.c \
-	server/db.c \
-	server/cron.c \
-	server/melian-server.c
-
+melian_server_SOURCES = server/util.c server/log.c server/arena.c \
+	server/xxhash.c server/hash.c server/server.c server/config.c \
+	server/status.c server/data.c server/db.c server/cron.c \
+	server/melian-server.c $(am__append_1) $(am__append_2)
 melian_server_LDADD = \
 	$(LIBEVENT_LIBS) \
 	$(MYSQL_LIBS) \
@@ -356,6 +363,7 @@ melian_server_LDADD = \
 	$(POSTGRESQL_LIBS) \
 	$(PTHREAD_LIBS) \
 	$(JANSSON_LIBS) \
+	$(URING_LIBS) \
 	$(LIBM)
 
 melian_client_SOURCES = \
@@ -489,6 +497,10 @@ server/cron.$(OBJEXT): server/$(am__dirstamp) \
 	server/$(DEPDIR)/$(am__dirstamp)
 server/melian-server.$(OBJEXT): server/$(am__dirstamp) \
 	server/$(DEPDIR)/$(am__dirstamp)
+server/event_loop_uring.$(OBJEXT): server/$(am__dirstamp) \
+	server/$(DEPDIR)/$(am__dirstamp)
+server/event_loop_libevent.$(OBJEXT): server/$(am__dirstamp) \
+	server/$(DEPDIR)/$(am__dirstamp)
 
 melian-server$(EXEEXT): $(melian_server_OBJECTS) $(melian_server_DEPENDENCIES) $(EXTRA_melian_server_DEPENDENCIES) 
 	@rm -f melian-server$(EXEEXT)
@@ -509,6 +521,8 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@server/$(DEPDIR)/cron.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@server/$(DEPDIR)/data.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@server/$(DEPDIR)/db.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@server/$(DEPDIR)/event_loop_libevent.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@server/$(DEPDIR)/event_loop_uring.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@server/$(DEPDIR)/hash.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@server/$(DEPDIR)/log.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@server/$(DEPDIR)/melian-server.Po@am__quote@ # am--include-marker
@@ -823,6 +837,8 @@ distclean: distclean-am
 	-rm -f server/$(DEPDIR)/cron.Po
 	-rm -f server/$(DEPDIR)/data.Po
 	-rm -f server/$(DEPDIR)/db.Po
+	-rm -f server/$(DEPDIR)/event_loop_libevent.Po
+	-rm -f server/$(DEPDIR)/event_loop_uring.Po
 	-rm -f server/$(DEPDIR)/hash.Po
 	-rm -f server/$(DEPDIR)/log.Po
 	-rm -f server/$(DEPDIR)/melian-server.Po
@@ -884,6 +900,8 @@ maintainer-clean: maintainer-clean-am
 	-rm -f server/$(DEPDIR)/cron.Po
 	-rm -f server/$(DEPDIR)/data.Po
 	-rm -f server/$(DEPDIR)/db.Po
+	-rm -f server/$(DEPDIR)/event_loop_libevent.Po
+	-rm -f server/$(DEPDIR)/event_loop_uring.Po
 	-rm -f server/$(DEPDIR)/hash.Po
 	-rm -f server/$(DEPDIR)/log.Po
 	-rm -f server/$(DEPDIR)/melian-server.Po

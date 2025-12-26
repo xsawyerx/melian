@@ -8,10 +8,6 @@
 #include <arpa/inet.h>
 #include <sys/stat.h>
 #include <sys/un.h>
-#include <event2/event.h>
-#include <event2/listener.h>
-#include <event2/bufferevent.h>
-#include <event2/buffer.h>
 #include "util.h"
 #include "log.h"
 #include "arena.h"
@@ -21,16 +17,13 @@
 #include "data.h"
 #include "db.h"
 #include "cron.h"
+#include "event_loop.h"
 #include "protocol.h"
 #include "server.h"
 
 enum {
   MELIAN_MAX_KEY_LEN = 256, // max key length in bytes
 };
-
-// Bufferevent options: always close fd on free, and defer callbacks so libevent
-// can batch work and avoid re-entrancy in hot paths.
-#define MELIAN_BEV_OPTS (BEV_OPT_CLOSE_ON_FREE | BEV_OPT_DEFER_CALLBACKS)
 
 // State for each client connection
 struct conn_state_t {
@@ -44,16 +37,15 @@ struct conn_state_t {
   uint8_t keybuf[MELIAN_MAX_KEY_LEN];
   uint32_t key_have;
   unsigned discarding;
-  struct bufferevent *bev;
+  EventConn* conn;
   struct conn_state_t* next;
 };
 
-static void on_read(struct bufferevent *bev, void *ctx);
-static void on_event(struct bufferevent *bev, short events, void *ctx);
-static void on_accept(struct evconnlistener *lev, evutil_socket_t fd,
-                      struct sockaddr *addr, int socklen, void *ctx);
-static void on_quit(evutil_socket_t fd, short what, void *ctx);
-static void on_signal(int signal, short events, void *ctx);
+static void on_read(EventConn* conn, void *ctx);
+static void on_event(EventConn* conn, void *ctx, unsigned events);
+static void on_accept(int fd, void *ctx);
+static void on_quit(void *ctx);
+static void on_signal(int signal, void *ctx);
 
 Server* server_build(void) {
   Server* server = 0;
@@ -64,9 +56,9 @@ Server* server_build(void) {
       LOG_WARN("Could not allocate a Server object");
       break;
     }
-    server->base = event_base_new();
-    if (!server->base) {
-      LOG_WARN("Could not allocate a Server event_base object");
+    server->loop = event_loop_build();
+    if (!server->loop) {
+      LOG_WARN("Could not allocate a Server event loop");
       ++bad;
       break;
     }
@@ -92,15 +84,16 @@ Server* server_build(void) {
       break;
     }
 
-    server->status = status_build(server->base, server->db);
+    server->status = status_build(event_loop_backend_version(server->loop),
+                                  event_loop_backend_name(server->loop),
+                                  server->db);
     if (!server->status) {
       ++bad;
       break;
     }
     status_log(server->status);
 
-    server->sev = evsignal_new(server->base, SIGINT, on_signal, server);
-    event_add(server->sev, NULL);
+    event_loop_add_signal(server->loop, SIGINT, on_signal, server);
   } while (0);
   if (bad) {
     server_destroy(server);
@@ -118,22 +111,19 @@ void server_destroy(Server* server) {
     ++size;
     struct conn_state_t* q = p;
     p = p->next;
-    bufferevent_free(q->bev);
+    if (q->conn) event_loop_conn_free(q->conn);
     free(q);
   }
   if (size) {
     LOG_INFO("Cleared conn free list with %u elements", size);
   }
 
-  if (server->listener) evconnlistener_free(server->listener);
   if (server->cron) cron_destroy(server->cron);
   if (server->data) data_destroy(server->data);
   if (server->db) db_destroy(server->db);
   if (server->status) status_destroy(server->status);
   if (server->config) config_destroy(server->config);
-  if (server->sev) event_free(server->sev);
-  if (server->tev) event_free(server->tev);
-  if (server->base) event_base_free(server->base);
+  if (server->loop) event_loop_destroy(server->loop);
   free(server);
 }
 
@@ -146,17 +136,9 @@ unsigned server_listen(Server* server) {
   const char* path = server->config->socket.path;
   if (path && path[0]) {
     unlink(path);
-    struct sockaddr_un sun;
-    memset(&sun, 0, sizeof(sun));
-    sun.sun_family = AF_UNIX;
-    int wrote = snprintf(sun.sun_path, sizeof(sun.sun_path), "%s", path);
-    if (wrote < 0 || (size_t)wrote >= sizeof(sun.sun_path)) {
-      errno = ENOMEM;
-      LOG_FATAL("UNIX socket path '%s' exceeds %zu bytes", path, sizeof(sun.sun_path) - 1);
+    if (!event_loop_listen_unix(server->loop, path, on_accept, server)) {
+      return 0;
     }
-    server->listener = evconnlistener_new_bind(server->base, on_accept, server,
-                                               LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE, -1,
-                                               (struct sockaddr*)&sun, sizeof(sun));
     mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP; // 0660
     chmod(path, mode);
     LOG_INFO("Listening on UNIX socket [%s]", path);
@@ -166,14 +148,9 @@ unsigned server_listen(Server* server) {
   const char* host = server->config->socket.host;
   unsigned port = server->config->socket.port;
   if (host && host[0] && port) {
-    struct sockaddr_in sin;
-    memset(&sin, 0, sizeof(sin));
-    sin.sin_family = AF_INET;
-    sin.sin_port = htons(port);
-    inet_pton(AF_INET, host, &sin.sin_addr);
-    unsigned flags = LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE | LEV_OPT_REUSEABLE_PORT;
-    server->listener = evconnlistener_new_bind(server->base, on_accept, server, flags, -1,
-                                               (struct sockaddr*)&sin, sizeof(sin));
+    if (!event_loop_listen_tcp(server->loop, host, port, on_accept, server)) {
+      return 0;
+    }
     LOG_INFO("Listening on TCP socket [%s:%u]", host, port);
     return 1;
   }
@@ -188,7 +165,7 @@ unsigned server_run(Server* server) {
 
     cron_run(server->cron);
     LOG_INFO("Running event loop");
-    event_base_dispatch(server->base);
+    event_loop_run(server->loop);
   } while (0);
   return 0;
 }
@@ -200,22 +177,20 @@ unsigned server_stop(Server* server) {
 
     cron_stop(server->cron);
     LOG_INFO("Stopping event loop");
-    event_base_loopexit(server->base, 0);
+    event_loop_stop(server->loop);
   } while (0);
   return 0;
 }
 
 // Read callback: parse requests, send replies
-static void on_read(struct bufferevent *bev, void *ctx) {
+static void on_read(EventConn* conn, void *ctx) {
   struct conn_state_t *state = ctx;
   Server* server = state->server;
-  struct evbuffer *in = bufferevent_get_input(bev);
-  struct evbuffer *out = bufferevent_get_output(bev);
   while (1) {
     // Step 1 (zero-copy): ensure full header is available, then parse in place
     if (state->hdr_have < sizeof(state->hdr)) {
-      if (evbuffer_get_length(in) < sizeof(MelianRequestHeader)) return; // need more bytes
-      const uint8_t *hp = evbuffer_pullup(in, sizeof(MelianRequestHeader));
+      if (event_loop_conn_in_len(conn) < sizeof(MelianRequestHeader)) return; // need more bytes
+      const uint8_t *hp = event_loop_conn_in_peek(conn, sizeof(MelianRequestHeader));
       if (!hp) return; // defensive
       const MelianRequestHeader *H = (const MelianRequestHeader *)hp;
       assert(H->data.version == MELIAN_HEADER_VERSION);
@@ -223,20 +198,20 @@ static void on_read(struct bufferevent *bev, void *ctx) {
       state->table_id = H->data.table_id;
       state->index_id = H->data.index_id;
       state->key_len = ntohl(H->data.length);
-      evbuffer_drain(in, sizeof(MelianRequestHeader)); // consume header
+      event_loop_conn_in_drain(conn, sizeof(MelianRequestHeader)); // consume header
       state->hdr_have = sizeof(MelianRequestHeader);
       state->discarding = (state->key_len > MELIAN_MAX_KEY_LEN);
       state->key_have = 0;
     }
 
     // Step 2 (zero-copy): ensure full key payload is available
-    if (evbuffer_get_length(in) < state->key_len) {
+    if (event_loop_conn_in_len(conn) < state->key_len) {
       return; // wait for more bytes
     }
     const uint8_t *key_ptr = NULL;
     if (!state->discarding) {
       if (state->key_len > 0) {
-        key_ptr = evbuffer_pullup(in, state->key_len);      // contiguous view of key
+        key_ptr = event_loop_conn_in_peek(conn, state->key_len);      // contiguous view of key
         if (!key_ptr) return;                               // defensive
       } else {
         key_ptr = (const uint8_t*)"";                       // no payload needed
@@ -273,9 +248,7 @@ static void on_read(struct bufferevent *bev, void *ctx) {
           rptr = (uint8_t*) bye;
           rlen = strlen(bye);
 
-          const struct timeval one_sec = { 1, 0 }; // sec, usec
-          server->tev = evtimer_new(server->base, on_quit, server);
-          evtimer_add(server->tev, &one_sec);
+          event_loop_add_timer(server->loop, 1000, on_quit, server);
           break;
         }
 
@@ -301,11 +274,11 @@ static void on_read(struct bufferevent *bev, void *ctx) {
       LOG_DEBUG("Writing response with %u bytes", rlen);
       if (!rfmt) {
         uint32_t l = htonl(rlen);
-        // Rare path: non-arena reply (e.g., status/QUIT). Add 4B length into evbuffer.
-        evbuffer_add(out, &l, sizeof(l));
+        // Rare path: non-arena reply (e.g., status/QUIT). Add 4B length into output.
+        event_loop_conn_out_add(conn, &l, sizeof(l));
       }
       // Zero-copy send of arena-backed frame (or static buffer)
-      evbuffer_add_reference(out, rptr, rlen, NULL, NULL);
+      event_loop_conn_out_add_ref(conn, rptr, rlen);
     } else {
       switch (state->action) {
         case MELIAN_ACTION_FETCH: {
@@ -325,11 +298,11 @@ static void on_read(struct bufferevent *bev, void *ctx) {
       }
       LOG_DEBUG("Writing ZERO response");
       // Zero-copy reference to static 4B zero header
-      evbuffer_add_reference(out, zero_hdr, sizeof(zero_hdr), NULL, NULL);
+      event_loop_conn_out_add_ref(conn, zero_hdr, sizeof(zero_hdr));
     }
 
     // Consume key bytes (or discarded payload) from input buffer
-    evbuffer_drain(in, state->key_len);
+    event_loop_conn_in_drain(conn, state->key_len);
 
     // Reset for next request
     state->hdr_have = 0;
@@ -339,56 +312,58 @@ static void on_read(struct bufferevent *bev, void *ctx) {
 }
 
 // Event callback: handle disconnects and errors
-static void on_event(struct bufferevent *bev, short events, void *ctx) {
-  UNUSED(bev);
+static void on_event(EventConn* conn, void *ctx, unsigned events) {
   struct conn_state_t *state = ctx;
-  if (events & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
-    LOG_DEBUG("Reusing state and bufferevent");
-    bufferevent_setfd(state->bev, -1);
+  if (events & (EVENT_LOOP_EVENT_EOF | EVENT_LOOP_EVENT_ERROR)) {
+    LOG_DEBUG("Reusing state");
+    if (state->conn) event_loop_conn_free(state->conn);
+    state->conn = NULL;
     Server* server = state->server;
     state->next = server->conn_free;
     server->conn_free = state;
   }
 }
 
-// Accept callback: create bufferevent for new client
-static void on_accept(struct evconnlistener *lev, evutil_socket_t fd,
-                      struct sockaddr *addr, int socklen, void *ctx) {
-  UNUSED(lev);
-  UNUSED(addr);
-  UNUSED(socklen);
+// Accept callback: create connection for new client
+static void on_accept(int fd, void *ctx) {
 #if __APPLE__
   int one = 1;
   setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
 #endif
   Server* server = ctx;
-  struct event_base *base = server->base;
   struct conn_state_t *state = 0;
   if (server->conn_free) {
     state = server->conn_free;
     server->conn_free = server->conn_free->next;
     state->next = 0;
-    bufferevent_setfd(state->bev, fd);
-    LOG_DEBUG("REUSED conn and bev");
+    if (state->conn) event_loop_conn_free(state->conn);
+    state->conn = NULL;
+    LOG_DEBUG("REUSED conn state");
   } else {
     state = calloc(1, sizeof(struct conn_state_t));
     state->server = server;
-    state->bev = bufferevent_socket_new(base, fd, MELIAN_BEV_OPTS);
-    LOG_DEBUG("CREATED conn and bev");
+    LOG_DEBUG("CREATED conn state");
   }
-  bufferevent_setcb(state->bev, on_read, NULL, on_event, state);
-  bufferevent_enable(state->bev, EV_READ | EV_WRITE);
+  state->hdr_have = 0;
+  state->key_have = 0;
+  state->discarding = 0;
+  state->conn = event_loop_conn_build(server->loop, fd);
+  if (!state->conn) {
+    close(fd);
+    state->next = server->conn_free;
+    server->conn_free = state;
+    return;
+  }
+  event_loop_conn_set_cb(state->conn, on_read, on_event, state);
+  event_loop_conn_enable(state->conn);
 }
 
-static void on_quit(evutil_socket_t fd, short what, void *ctx) {
-  UNUSED(fd);
-  UNUSED(what);
+static void on_quit(void *ctx) {
   Server *server = ctx;
   server_stop(server);
 }
 
-static void on_signal(int signal, short events, void *ctx) {
-  UNUSED(events);
+static void on_signal(int signal, void *ctx) {
   Server* server = ctx;
   LOG_INFO("Received signal %d, quitting", signal);
   server_stop(server);
