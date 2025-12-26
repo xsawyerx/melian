@@ -10,7 +10,8 @@ AM_CPPFLAGS = \
 	$(MYSQL_CFLAGS) \
 	$(SQLITE_CFLAGS) \
 	$(POSTGRESQL_CFLAGS) \
-	$(PLATFORM_CPPFLAGS)
+	$(PLATFORM_CPPFLAGS) \
+	$(URING_CFLAGS)
 
 AM_CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -g
 
@@ -28,6 +29,12 @@ melian_server_SOURCES = \
 	server/cron.c \
 	server/melian-server.c
 
+if ENABLE_URING
+melian_server_SOURCES += server/event_loop_uring.c
+else
+melian_server_SOURCES += server/event_loop_libevent.c
+endif
+
 melian_server_LDADD = \
 	$(LIBEVENT_LIBS) \
 	$(MYSQL_LIBS) \
@@ -35,6 +42,7 @@ melian_server_LDADD = \
 	$(POSTGRESQL_LIBS) \
 	$(PTHREAD_LIBS) \
 	$(JANSSON_LIBS) \
+	$(URING_LIBS) \
 	$(LIBM)
 
 melian_client_SOURCES = \

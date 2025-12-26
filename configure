@@ -652,6 +652,10 @@ POSTGRESQL_LIBS
 POSTGRESQL_CFLAGS
 SQLITE_LIBS
 SQLITE_CFLAGS
+ENABLE_URING_FALSE
+ENABLE_URING_TRUE
+URING_LIBS
+URING_CFLAGS
 LIBEVENT_LIBS
 MYSQL_LIBS
 MYSQL_CFLAGS
@@ -759,6 +763,8 @@ enable_silent_rules
 enable_dependency_tracking
 with_mysql
 with_libevent
+enable_uring
+with_liburing
 with_sqlite3
 with_postgresql
 with_jansson
@@ -1404,6 +1410,7 @@ Optional Features:
                           do not reject slow dependency extractors
   --disable-dependency-tracking
                           speeds up one-time build
+  --enable-uring          Enable io_uring backend on Linux (requires liburing)
 
 Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
@@ -1412,6 +1419,8 @@ Optional Packages:
                           libraries can be found (auto-detect by default)
   --with-libevent=PREFIX  Prefix where libevent headers and libraries can be
                           found
+  --with-liburing=PREFIX  Prefix where liburing headers and libraries can be
+                          found (auto-detect by default)
   --with-sqlite3=PREFIX   Prefix where SQLite3 headers and libraries can be
                           found (auto-detect by default)
   --with-postgresql=PREFIX
@@ -5896,6 +5905,141 @@ fi
 LDFLAGS="$save_LDFLAGS"
 
 
+# Optional io_uring support (Linux only)
+# Check whether --enable-uring was given.
+if test ${enable_uring+y}
+then :
+  enableval=$enable_uring;
+else case e in #(
+  e) enable_uring=auto ;;
+esac
+fi
+
+
+
+# Check whether --with-liburing was given.
+if test ${with_liburing+y}
+then :
+  withval=$with_liburing;
+else case e in #(
+  e) with_liburing=auto ;;
+esac
+fi
+
+
+have_uring=no
+URING_CFLAGS=""
+URING_LIBS=""
+if test "x$enable_uring" != "xno"; then
+  case $host_os in
+    linux*)
+      case $with_liburing in
+        auto|yes)
+          URING_CPPFLAGS=""
+          URING_LDFLAGS=""
+          ;;
+        *)
+          URING_CPPFLAGS="-I$with_liburing/include"
+          URING_LDFLAGS="-L$with_liburing/lib"
+          ;;
+      esac
+
+      save_CPPFLAGS="$CPPFLAGS"
+      CPPFLAGS="$URING_CPPFLAGS $CPPFLAGS"
+      ac_fn_c_check_header_compile "$LINENO" "liburing.h" "ac_cv_header_liburing_h" "$ac_includes_default"
+if test "x$ac_cv_header_liburing_h" = xyes
+then :
+  have_uring=yes
+else case e in #(
+  e) have_uring=no ;;
+esac
+fi
+
+      CPPFLAGS="$save_CPPFLAGS"
+
+      if test "x$have_uring" = "xyes"; then
+        save_LDFLAGS="$LDFLAGS"
+        LDFLAGS="$URING_LDFLAGS $LDFLAGS"
+        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for io_uring_queue_init in -luring" >&5
+printf %s "checking for io_uring_queue_init in -luring... " >&6; }
+if test ${ac_cv_lib_uring_io_uring_queue_init+y}
+then :
+  printf %s "(cached) " >&6
+else case e in #(
+  e) ac_check_lib_save_LIBS=$LIBS
+LIBS="-luring  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.
+   The 'extern "C"' is for builds by C++ compilers;
+   although this is not generally supported in C code supporting it here
+   has little cost and some practical benefit (sr 110532).  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char io_uring_queue_init (void);
+int
+main (void)
+{
+return io_uring_queue_init ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"
+then :
+  ac_cv_lib_uring_io_uring_queue_init=yes
+else case e in #(
+  e) ac_cv_lib_uring_io_uring_queue_init=no ;;
+esac
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS ;;
+esac
+fi
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_uring_io_uring_queue_init" >&5
+printf "%s\n" "$ac_cv_lib_uring_io_uring_queue_init" >&6; }
+if test "x$ac_cv_lib_uring_io_uring_queue_init" = xyes
+then :
+  URING_LIBS="$URING_LDFLAGS -luring"
+else case e in #(
+  e) have_uring=no ;;
+esac
+fi
+
+        LDFLAGS="$save_LDFLAGS"
+      fi
+
+      if test "x$have_uring" = "xyes"; then
+        URING_CFLAGS="$URING_CPPFLAGS"
+
+printf "%s\n" "#define HAVE_URING 1" >>confdefs.h
+
+      fi
+      ;;
+    *)
+      have_uring=no
+      ;;
+  esac
+fi
+if test "x$enable_uring" = "xyes" && test "x$have_uring" != "xyes"; then
+  as_fn_error $? "io_uring requested but liburing not found or unsupported platform" "$LINENO" 5
+fi
+
+
+ if test "x$have_uring" = "xyes"; then
+  ENABLE_URING_TRUE=
+  ENABLE_URING_FALSE='#'
+else
+  ENABLE_URING_TRUE='#'
+  ENABLE_URING_FALSE=
+fi
+
+
 # Optional SQLite support (prepare to link when available)
 
 # Check whether --with-sqlite3 was given.
@@ -6516,6 +6660,10 @@ Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 if test -z "${am__fastdepCC_TRUE}" && test -z "${am__fastdepCC_FALSE}"; then
   as_fn_error $? "conditional \"am__fastdepCC\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${ENABLE_URING_TRUE}" && test -z "${ENABLE_URING_FALSE}"; then
+  as_fn_error $? "conditional \"ENABLE_URING\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
 fi
 

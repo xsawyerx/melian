@@ -2,8 +2,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include <event2/event.h>
-#include <event2/util.h>
+#include <poll.h>
+#include <sys/socket.h>
 #include <pthread.h>
 #include <unistd.h>
 #include "util.h"
@@ -22,7 +22,6 @@ enum ThreadMessage {
 };
 
 static void poke_thread(Cron* cron, uint8_t message);
-static void on_tick(evutil_socket_t fd, short what, void *arg);
 static void* loader_main(void *arg);
 
 Cron* cron_build(struct Server* server) {
@@ -42,7 +41,6 @@ void cron_destroy(Cron* cron) {
   if (!cron) return;
   cron_stop(cron);
 
-  if (cron->tick) event_free(cron->tick);
   free(cron);
 }
 
@@ -53,13 +51,9 @@ unsigned cron_run(Cron* cron) {
 
     LOG_INFO("Starting up cron");
     // TODO: do we need to call shutdown() on each socket?
-    evutil_socketpair(AF_UNIX, SOCK_STREAM, 0, cron->pair);
+    socketpair(AF_UNIX, SOCK_STREAM, 0, cron->pair);
     // evutil_make_socket_nonblocking(cron->pair[0]);
     // evutil_make_socket_nonblocking(cron->pair[1]);
-
-    struct timeval wait = { CRON_TICK_PERIOD, 0 };
-    cron->tick = event_new(cron->server->base, -1, EV_PERSIST, on_tick, cron);
-    event_add(cron->tick, &wait);
 
     pthread_t thread;
     pthread_create(&thread, 0, loader_main, cron);
@@ -99,25 +93,31 @@ static void poke_thread(Cron* cron, uint8_t message) {
   }
 }
 
-static void on_tick(evutil_socket_t fd, short what, void *arg) {
-  UNUSED(fd);
-  UNUSED(what);
-  Cron* cron = arg;
-  LOG_DEBUG("Tick for cron %p", (void*)cron);
-  poke_thread(cron, THREAD_MESSAGE_WAKEUP);
-}
-
 static void* loader_main(void *arg) {
   Cron* cron = arg;
   LOG_INFO("THREAD: running loader, cron: %p", (void*)cron);
   while (1) {
-    uint8_t b;
-    int nread = read(cron->pair[0], &b, 1);
-    LOG_DEBUG("THREAD: read %u bytes: %c", nread, b);
-    if (nread != 1) break;
-    if (b == THREAD_MESSAGE_QUIT) {
-      LOG_DEBUG("THREAD: got a quit message");
+    struct pollfd pfd;
+    pfd.fd = cron->pair[0];
+    pfd.events = POLLIN;
+    pfd.revents = 0;
+    int rc = poll(&pfd, 1, CRON_TICK_PERIOD * 1000);
+    if (rc < 0) {
+      if (errno == EINTR) continue;
+      LOG_ERROR("THREAD: poll failed: %s", strerror(errno));
       break;
+    }
+    if (rc > 0 && (pfd.revents & POLLIN)) {
+      uint8_t b;
+      int nread = read(cron->pair[0], &b, 1);
+      LOG_DEBUG("THREAD: read %u bytes: %c", nread, b);
+      if (nread != 1) break;
+      if (b == THREAD_MESSAGE_QUIT) {
+        LOG_DEBUG("THREAD: got a quit message");
+        break;
+      }
+    } else {
+      LOG_DEBUG("THREAD: tick timeout");
     }
     LOG_DEBUG("THREAD: woke up");
     data_load_all_tables_from_db(cron->server->data, cron->server->db);

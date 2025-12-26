@@ -101,6 +101,69 @@ AC_CHECK_LIB([event], [event_base_new],
 LDFLAGS="$save_LDFLAGS"
 AC_SUBST([LIBEVENT_LIBS])
 
+# Optional io_uring support (Linux only)
+AC_ARG_ENABLE([uring],
+  [AS_HELP_STRING([--enable-uring],
+    [Enable io_uring backend on Linux (requires liburing)])],
+  [],
+  [enable_uring=auto])
+
+AC_ARG_WITH([liburing],
+  [AS_HELP_STRING([--with-liburing=PREFIX],
+    [Prefix where liburing headers and libraries can be found (auto-detect by default)])],
+  [],
+  [with_liburing=auto])
+
+have_uring=no
+URING_CFLAGS=""
+URING_LIBS=""
+if test "x$enable_uring" != "xno"; then
+  case $host_os in
+    linux*)
+      case $with_liburing in
+        auto|yes)
+          URING_CPPFLAGS=""
+          URING_LDFLAGS=""
+          ;;
+        *)
+          URING_CPPFLAGS="-I$with_liburing/include"
+          URING_LDFLAGS="-L$with_liburing/lib"
+          ;;
+      esac
+
+      save_CPPFLAGS="$CPPFLAGS"
+      CPPFLAGS="$URING_CPPFLAGS $CPPFLAGS"
+      AC_CHECK_HEADER([liburing.h],
+        [have_uring=yes],
+        [have_uring=no])
+      CPPFLAGS="$save_CPPFLAGS"
+
+      if test "x$have_uring" = "xyes"; then
+        save_LDFLAGS="$LDFLAGS"
+        LDFLAGS="$URING_LDFLAGS $LDFLAGS"
+        AC_CHECK_LIB([uring], [io_uring_queue_init],
+          [URING_LIBS="$URING_LDFLAGS -luring"],
+          [have_uring=no])
+        LDFLAGS="$save_LDFLAGS"
+      fi
+
+      if test "x$have_uring" = "xyes"; then
+        URING_CFLAGS="$URING_CPPFLAGS"
+        AC_DEFINE([HAVE_URING], [1], [Define if io_uring support is available])
+      fi
+      ;;
+    *)
+      have_uring=no
+      ;;
+  esac
+fi
+if test "x$enable_uring" = "xyes" && test "x$have_uring" != "xyes"; then
+  AC_MSG_ERROR([io_uring requested but liburing not found or unsupported platform])
+fi
+AC_SUBST([URING_CFLAGS])
+AC_SUBST([URING_LIBS])
+AM_CONDITIONAL([ENABLE_URING], [test "x$have_uring" = "xyes"])
+
 # Optional SQLite support (prepare to link when available)
 AC_ARG_WITH([sqlite3],
   [AS_HELP_STRING([--with-sqlite3=PREFIX],
