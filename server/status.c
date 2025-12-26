@@ -360,11 +360,20 @@ static json_t* json_config_info(Config* config, const char* driver_key) {
   }
   if (!driver_cfg) return NULL;
 
-  json_t* socket_cfg = json_pack("{s:s,s:i,s:s}",
-                                 "host", config->socket.host,
-                                 "port", (int)config->socket.port,
-                                 "path", config->socket.path);
-  if (!socket_cfg) {
+  json_t* sockets_cfg = json_array();
+  ConfigSocket** sockets = config->listeners.sockets;
+  if (sockets) {
+    size_t i = 0;
+    for (ConfigSocket* socket = sockets[i++]; socket; socket = sockets[i++]) {
+      json_t* socket_cfg = json_pack("{s:s,s:i,s:s}",
+                                     "host", socket->host,
+                                     "port", (int) socket->port,
+                                     "path", socket->path);
+      json_array_append_new(sockets_cfg, socket_cfg);
+    }
+  } 
+  
+  if (!sockets_cfg) {
     json_decref(driver_cfg);
     return NULL;
   }
@@ -375,26 +384,26 @@ static json_t* json_config_info(Config* config, const char* driver_key) {
                                 "strip_null", config->table.strip_null ? 1 : 0);
   if (!table_cfg) {
     json_decref(driver_cfg);
-    json_decref(socket_cfg);
+    json_decref(sockets_cfg);
     return NULL;
   }
 
   json_t* server_cfg = json_pack("{s:b}", "show_msgs", config->server.show_msgs ? 1 : 0);
   if (!server_cfg) {
     json_decref(driver_cfg);
-    json_decref(socket_cfg);
+    json_decref(sockets_cfg);
     json_decref(table_cfg);
     return NULL;
   }
 
   json_t* config_obj = json_pack("{s:O,s:O,s:O,s:O}",
                                  driver_key, driver_cfg,
-                                 "socket", socket_cfg,
+                                 "sockets", sockets_cfg,
                                  "table", table_cfg,
                                  "server", server_cfg);
   if (!config_obj) {
     json_decref(driver_cfg);
-    json_decref(socket_cfg);
+    json_decref(sockets_cfg);
     json_decref(table_cfg);
     json_decref(server_cfg);
   }

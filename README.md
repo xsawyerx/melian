@@ -77,6 +77,7 @@ In those cases, a general-purpose cache, or a write-through layer, is a better f
 
 * Gonzalo Diethelm (@Gonzo)
 * Sawyer X (@xsawyerx)
+* Rawley Fowler (@rawleyfowler)
 
 ## Building
 
@@ -124,6 +125,10 @@ Set the database driver explicitly and adjust shared settings via config file or
         "sqlite": {
             "filename": "/var/lib/melian.db"
         }
+    },
+    "listeners": {
+        "tcp://0.0.0.0:3000",
+        "unix:///path/to/melian.sock"
     },
     "tables": [
         {
@@ -187,7 +192,7 @@ These will override any values in the config file.
 * `MELIAN_DB_PASSWORD` (config: `database.password`): password (default `meliansecret`)
 * `MELIAN_SQLITE_FILENAME` (config: `database.sqlite.filename`): SQLite database filename (default `/etc/melian.db`)
 * `MELIAN_TABLE_SELECTS`: semicolon-separated overrides (`table=SELECT ...;table2=SELECT ...`) to customize per-table SELECT statements
-* `MELIAN_SOCKET_PATH`: `/tmp/melian.sock` (set to an empty string to disable the UNIX socket and enable TCP)
+* `MELIAN_LISTENERS` (config: `listeners`): comma separated list of listeners for melian to listen to (default `unix:///tmp/melian.sock,tcp://127.0.0.1:0`)
 * `MELIAN_TABLE_TABLES` (config: `tables`): `table1,table2`
 * `MELIAN_TABLE_PERIOD`: `60` seconds (reload interval)
 
@@ -199,10 +204,11 @@ Ths describes the test client we have in C.
 
 ```bash
 # Connect to a UNIX socket
+$ ./melian-server
 $ ./melian-client -u /tmp/melian.sock
 
 # Connect to a TCP socket (ensure the UNIX socket is disabled)
-$ MELIAN_SOCKET_PATH= MELIAN_SOCKET_HOST=127.0.0.1 MELIAN_SOCKET_PORT=8765 ./melian-server
+$ MELIAN_LISTENERS=tcp://127.0.0.1:8765 ./melian-server
 $ ./melian-client -p 8765
 
 # Display client options

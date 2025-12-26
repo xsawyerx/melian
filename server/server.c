@@ -124,7 +124,12 @@ void server_destroy(Server* server) {
     LOG_INFO("Cleared conn free list with %u elements", size);
   }
 
-  if (server->listener) evconnlistener_free(server->listener);
+  if (server->listeners) {
+    for (size_t i = 0; i < server->num_listeners; i++) {
+      evconnlistener_free(server->listeners[i]);
+    }
+    free(server->listeners);
+  }
   if (server->cron) cron_destroy(server->cron);
   if (server->data) data_destroy(server->data);
   if (server->db) db_destroy(server->db);
@@ -142,35 +147,50 @@ unsigned server_initial_load(Server* server) {
 }
 
 unsigned server_listen(Server* server) {
-  const char* path = server->config->socket.path;
-  if (path && path[0]) {
-    unlink(path);
-    struct sockaddr_un sun;
-    memset(&sun, 0, sizeof(sun));
-    sun.sun_family = AF_UNIX;
-    /* TODO: Check for truncation: if (... >= (int)sizeof(sun.sun_path)) {...} */
-    snprintf(sun.sun_path, sizeof(sun.sun_path), "%s", path);
-    server->listener = evconnlistener_new_bind(server->base, on_accept, server,
-                                               LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE, -1,
-                                               (struct sockaddr*)&sun, sizeof(sun));
-    mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP; // 0660
-    chmod(path, mode);
-    LOG_INFO("Listening on UNIX socket [%s]", path);
-    return 1;
+  ConfigSocket** sockets = server->config->listeners.sockets;
+  if (!sockets || !sockets[0]) {
+    LOG_WARN("Server has no configured sockets to listen on");
+    return 0;
   }
 
-  const char* host = server->config->socket.host;
-  unsigned port = server->config->socket.port;
-  if (host && host[0] && port) {
-    struct sockaddr_in sin;
-    memset(&sin, 0, sizeof(sin));
-    sin.sin_family = AF_INET;
-    sin.sin_port = htons(port);
-    inet_pton(AF_INET, host, &sin.sin_addr);
-    unsigned flags = LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE | LEV_OPT_REUSEABLE_PORT;
-    server->listener = evconnlistener_new_bind(server->base, on_accept, server, flags, -1,
-                                               (struct sockaddr*)&sin, sizeof(sin));
-    LOG_INFO("Listening on TCP socket [%s:%u]", host, port);
+  size_t num_sockets = 0;
+  for(ConfigSocket* socket = sockets[num_sockets++]; socket; socket = sockets[num_sockets++]);
+  server->listeners = calloc(num_sockets, sizeof(struct evconnlistener*));
+
+  size_t i = 0;
+  for(ConfigSocket* socket = sockets[i++]; socket; socket = sockets[i++]) {
+    const char* path = socket->path;
+    if (path && path[0]) {
+      unlink(path);
+      struct sockaddr_un sun;
+      memset(&sun, 0, sizeof(sun));
+      sun.sun_family = AF_UNIX;
+      /* TODO: Check for truncation: if (... >= (int)sizeof(sun.sun_path)) {...} */
+      snprintf(sun.sun_path, sizeof(sun.sun_path), "%s", path);
+      server->listeners[i] = evconnlistener_new_bind(server->base, on_accept, server,
+                                                 LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE, -1,
+                                                 (struct sockaddr*)&sun, sizeof(sun));
+      mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP; // 0660
+      chmod(path, mode);
+      LOG_INFO("Listening on UNIX socket [%s]", path);
+    }
+
+    const char* host = socket->host;
+    unsigned port = socket->port;
+    if (host && host[0] && port) {
+      struct sockaddr_in sin;
+      memset(&sin, 0, sizeof(sin));
+      sin.sin_family = AF_INET;
+      sin.sin_port = htons(port);
+      inet_pton(AF_INET, host, &sin.sin_addr);
+      unsigned flags = LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE | LEV_OPT_REUSEABLE_PORT;
+      server->listeners[i] = evconnlistener_new_bind(server->base, on_accept, server, flags, -1,
+                                                 (struct sockaddr*)&sin, sizeof(sin));
+      LOG_INFO("Listening on TCP socket [%s:%u]", host, port);
+    }
+  }
+
+  if (num_sockets == i) {
     return 1;
   }
 

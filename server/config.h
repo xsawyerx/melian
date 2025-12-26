@@ -29,6 +29,10 @@ typedef struct ConfigSocket {
   const char* path;
 } ConfigSocket;
 
+typedef struct ConfigListeners {
+  ConfigSocket** sockets;
+} ConfigListeners;
+
 #define MELIAN_MAX_TABLES 64
 #define MELIAN_MAX_INDEXES 16
 #define MELIAN_MAX_NAME_LEN 256
@@ -72,10 +76,15 @@ typedef struct ConfigFileData {
   size_t length;
 } ConfigFileData;
 
+typedef struct ConfigArray {
+  const char** elems;
+  size_t length;
+} ConfigArray;
+
 typedef struct Config {
   ConfigFileData file;
   ConfigDb db;
-  ConfigSocket socket;
+  ConfigListeners listeners;
   ConfigTable table;
   ConfigServer server;
 } Config;
@@ -89,6 +98,7 @@ typedef enum ConfigFileSource {
 } ConfigFileSource;
 
 void config_set_config_file_path(const char* path, ConfigFileSource source);
+void config_set_cli_overrides(const char* listeners);
 
 Config* config_build(void);
 void config_destroy(Config* config);

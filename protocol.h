@@ -12,6 +12,7 @@
 #define MELIAN_DEFAULT_SOCKET_HOST      "127.0.0.1"
 #define MELIAN_DEFAULT_SOCKET_PORT      "0"
 #define MELIAN_DEFAULT_SOCKET_PATH      "/tmp/melian.sock"
+#define MELIAN_DEFAULT_LISTENERS        "unix:///tmp/melian.sock,tcp://127.0.0.1:0"
 #define MELIAN_DEFAULT_TABLE_PERIOD     "60"
 #define MELIAN_DEFAULT_TABLE_STRIP_NULL "false"
 #define MELIAN_DEFAULT_TABLE_TABLES     "table1#0|60|id:int,table2#1|60|id:int;hostname:string"

@@ -13,11 +13,15 @@ This is a guide for installing Melian.
 * `libjansson` (for client JSON parsing)
 * `sqlite3` (optional, for SQLite support)
 * `xxhash`
+* `autoconf`
 * POSIX environment (Linux or macOS)
 
 ### Configure & Build
 
 ```bash
+# Sets up GNU autoconf
+./bootstrap
+
 # Configure; pass --with-* flags if headers/libs are installed outside default paths
 # or configure to use either pkg-config or CPPFLAGS/LDFLAGS - see below
 ./configure --with-mysql=/opt/homebrew/opt/mysql-client \

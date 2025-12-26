@@ -3,14 +3,17 @@
 clients/c/melian-client
 server/melian-server
 Makefile
+Makefile.in
 /aclocal.m4
 /autom4te.cache/
 /config.log
 /config.status
 /depcomp
 /stamp-h1
+build-aux/
 clients/c/.deps/
 clients/c/.dirstamp
+configure
 configure~
 melian-client
 melian-server

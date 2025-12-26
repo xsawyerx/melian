@@ -15,6 +15,9 @@ static const char* get_config_string(const char* name, const char* def);
 static const char* get_config_string_allow_empty(const char* name, const char* def);
 static int get_config_number(const char* name, const char* def);
 static unsigned get_config_bool(const char* name, const char* def);
+static ConfigArray* get_config_array(const char* name, const char* def);
+static ConfigSocket** make_sockets_from_config_array(ConfigArray* config);
+static ConfigSocket* parse_socket_from_uri(const char* uri);
 static char* trim(char* s);
 static unsigned parse_table_specs(Config* config, const char* raw);
 static ConfigIndexType parse_index_type(const char* value);
@@ -28,24 +31,41 @@ static unsigned config_file_required(void);
 static unsigned parse_config_file_defaults(const char* json);
 static void clear_config_file_overrides(void);
 static const char* config_file_default_for(const char* name);
+static void set_override_array(ConfigArray** field, const char** values, size_t len);
 static void set_override_string(char** field, const char* value);
 static void set_override_owned(char** field, char* value);
+static void set_override_owned_array(ConfigArray** field, ConfigArray* value);
 static int sb_append(char** buf, size_t* len, size_t* cap, const char* fmt, ...);
 static char* build_tables_override(json_t* tables);
 
 static char* config_file_path = NULL;
 static ConfigFileSource config_file_source = CONFIG_FILE_SOURCE_DEFAULT;
 struct ConfigFileOverrides {
-  char* db_driver;
   char* db_host;
   char* db_port;
+  char* db_driver;
   char* db_name;
   char* db_user;
   char* db_password;
+  ConfigArray* listeners;
   char* sqlite_filename;
   char* table_tables;
 };
+struct ConfigCliOverrides {
+  char* listeners;
+};
+static struct ConfigCliOverrides config_cli_overrides = {0};
 static struct ConfigFileOverrides config_file_overrides = {0};
+
+void config_set_cli_overrides(const char *listeners) {
+  if (!listeners) return;
+  char* listeners_copy = strdup(listeners);
+  if (!listeners_copy) {
+    LOG_WARN("Could not store listeners from CLI override %s", listeners);
+    return;
+  }
+  config_cli_overrides.listeners = listeners;
+}
 
 void config_set_config_file_path(const char* path, ConfigFileSource source) {
   const char* final_path = (path && path[0]) ? path : MELIAN_DEFAULT_CONFIG_FILE;
@@ -78,7 +98,7 @@ Config* config_build(void) {
       LOG_FATAL("MELIAN_DB_DRIVER must be set to mysql, sqlite, or postgresql");
     }
     ConfigDbDriver driver = parse_db_driver(driver_raw);
-#if !defined(HAVE_MYSQL)
+#ifndef HAVE_MYSQL
     if (driver == CONFIG_DB_DRIVER_MYSQL) {
       LOG_FATAL("MySQL driver requested but not available in this build");
     }
@@ -97,9 +117,11 @@ Config* config_build(void) {
     config->db.password = get_config_string("MELIAN_DB_PASSWORD", MELIAN_DEFAULT_DB_PASSWORD);
     config->db.sqlite_filename = get_config_string("MELIAN_SQLITE_FILENAME", MELIAN_DEFAULT_SQLITE_FILENAME);
 
-    config->socket.host = get_config_string("MELIAN_SOCKET_HOST", MELIAN_DEFAULT_SOCKET_HOST);
-    config->socket.port = get_config_number("MELIAN_SOCKET_PORT", MELIAN_DEFAULT_SOCKET_PORT);
-    config->socket.path = get_config_string_allow_empty("MELIAN_SOCKET_PATH", MELIAN_DEFAULT_SOCKET_PATH);
+    ConfigArray* listeners = get_config_array("MELIAN_LISTENERS", MELIAN_DEFAULT_LISTENERS);
+    if (!listeners) {
+      LOG_FATAL("Failed to create listeners config array");
+    }
+    config->listeners.sockets = make_sockets_from_config_array(listeners);
 
     config->table.period = get_config_number("MELIAN_TABLE_PERIOD", MELIAN_DEFAULT_TABLE_PERIOD);
     config->table.strip_null = get_config_bool("MELIAN_TABLE_STRIP_NULL", MELIAN_DEFAULT_TABLE_STRIP_NULL);
@@ -118,18 +140,14 @@ Config* config_build(void) {
 
 void config_show_usage(void) {
 	printf("\n");
-	printf("Behavior can be controlled using the following environment variables:\n");
+	printf("Behaviour can be controlled using the following environment variables:\n");
 	printf("  MELIAN_CONFIG_FILE     : path to JSON configuration file (default: %s)\n", MELIAN_DEFAULT_CONFIG_FILE);
 	printf("  MELIAN_DB_DRIVER       : database driver to use (mysql, sqlite, postgresql) [required]\n");
-	printf("  MELIAN_DB_HOST         : database host name (default: %s)\n", MELIAN_DEFAULT_DB_HOST);
-	printf("  MELIAN_DB_PORT         : database listening port (default: %s)\n", MELIAN_DEFAULT_DB_PORT);
 	printf("  MELIAN_DB_NAME         : database/schema name (default: %s)\n", MELIAN_DEFAULT_DB_NAME);
 	printf("  MELIAN_DB_USER         : database user name (default: %s)\n", MELIAN_DEFAULT_DB_USER);
 	printf("  MELIAN_DB_PASSWORD     : database user password (default: %s)\n", MELIAN_DEFAULT_DB_PASSWORD);
+    printf("  MELIAN_LISTENERS       : the listeners that melian will listen on, tcp, unix socket, or both (default: %s)\n", MELIAN_DEFAULT_LISTENERS);
 	printf("  MELIAN_SQLITE_FILENAME : SQLite database filename (default: %s)\n", MELIAN_DEFAULT_SQLITE_FILENAME);
-	printf("  MELIAN_SOCKET_HOST     : host name where server will listen for TCP connections (default: %s)\n", MELIAN_DEFAULT_SOCKET_HOST);
-	printf("  MELIAN_SOCKET_PORT     : port where server will listen for TCP connections -- 0 to disable (default: %s)\n", MELIAN_DEFAULT_SOCKET_PORT);
-	printf("  MELIAN_SOCKET_PATH     : name of UNIX socket file to create -- empty to disable (default: %s)\n", MELIAN_DEFAULT_SOCKET_PATH);
 	printf("  MELIAN_TABLE_PERIOD    : how often (seconds) to refresh the data by default (default: %s)\n", MELIAN_DEFAULT_TABLE_PERIOD);
 	printf("  MELIAN_TABLE_SELECTS   : semicolon-separated list of table=SELECT ... overrides\n");
 	printf("  MELIAN_TABLE_STRIP_NULL: whether to strip null values in returned payloads (default: %s)\n", MELIAN_DEFAULT_TABLE_STRIP_NULL);
@@ -145,6 +163,98 @@ void config_destroy(Config* config) {
   if (config->file.contents) free(config->file.contents);
   if (config->file.path) free(config->file.path);
   free(config);
+}
+
+static ConfigArray* make_config_array(const char* raw) {
+  ConfigArray* cfg = calloc(1, sizeof(ConfigArray));
+  const char* cpy = strdup(raw);
+  if (!cpy) {
+    LOG_WARN("Unable to store config array value");
+    return NULL;
+  }
+  int count = 0;
+  char* value;
+  char* state;
+  for (value = strtok_r(cpy, ",", &state); value != NULL; value = strtok_r(NULL, ",", &state)) {
+    cfg->elems = realloc(cfg->elems, sizeof(const char*) * (count + 1));
+    char* d = strdup(value);
+    if (!d) {
+      LOG_WARN("Failed to make config array with value %s", raw);
+      return NULL;
+    }
+    cfg->elems[count] = d;
+    count++;
+  }
+  cfg->length = count;
+  free(cpy);
+  return cfg;
+}
+
+static ConfigSocket* parse_socket_from_uri(const char* uri) {
+  ConfigSocket* socket = calloc(1, sizeof(ConfigSocket));
+  size_t uri_len = strlen(uri);
+  if (uri_len < 6) {
+    LOG_WARN("Could not parse socket from uri %s", uri);
+    return NULL;
+  }
+  if (strncmp(uri, "unix:///", 8) == 0 && uri_len >= 9) {
+    char* path = strdup(uri + 7);
+    if (!path) {
+      LOG_WARN("Unable to allocate storage for path for socket %s", uri);
+      return NULL;
+    }
+    socket->path = path;
+  }
+  else if (strncmp(uri, "tcp://", 6) == 0) {
+    char* dsn = strdup(uri + 6);
+    if (!dsn) {
+      LOG_WARN("Unable to store value for uri %s", uri);
+      return NULL;
+    }
+    char* value;
+    char* state;
+    size_t ctx = 0;
+    for (value = strtok_r(dsn, ":", &state); value && ctx <= 1; value = strtok_r(NULL, ":", &state)) {
+      if (ctx == 0) {
+        char* host = strdup(value);
+        if (!host) {
+          LOG_WARN("Unable to store host value for uri %s", uri);
+          return NULL;
+        }
+        socket->host = host;
+      }
+
+      if (ctx == 1) {
+        socket->port = atoi(value);
+      }
+
+      ctx++;
+    }
+  }
+  else {
+    LOG_FATAL("Unable to parse socket format from uri %s", uri);
+  }
+  return socket;
+}
+
+static ConfigSocket** make_sockets_from_config_array(ConfigArray* array) {
+  ConfigSocket** sockets = calloc(array->length, sizeof(ConfigSocket*));
+  size_t n = 0;
+  for (size_t i = 0; i < array->length; i++) {
+    ConfigSocket* socket = parse_socket_from_uri(array->elems[i]);
+    if (socket) {
+      sockets[n++] = socket;
+    }
+  }
+  return sockets;
+}
+
+static ConfigArray* get_config_array(const char* name, const char* def) {
+  const char* value = getenv(name);
+  if (value && value[0]) return make_config_array(value);
+  const char* override = config_file_default_for(name);
+  if (override && override[0]) return make_config_array(override);
+  return make_config_array(def);
 }
 
 static const char* get_config_string(const char* name, const char* def) {
@@ -359,10 +469,10 @@ static ConfigDbDriver parse_db_driver(const char* value) {
 
 const char* config_db_driver_name(ConfigDbDriver driver) {
   switch (driver) {
-    case CONFIG_DB_DRIVER_MYSQL: return "mysql";
-    case CONFIG_DB_DRIVER_SQLITE: return "sqlite";
-    case CONFIG_DB_DRIVER_POSTGRESQL: return "postgresql";
-    default: return "unknown";
+  case CONFIG_DB_DRIVER_MYSQL: return "mysql";
+  case CONFIG_DB_DRIVER_SQLITE: return "sqlite";
+  case CONFIG_DB_DRIVER_POSTGRESQL: return "postgresql";
+  default: return "unknown";
   }
 }
 
@@ -501,6 +611,24 @@ static unsigned parse_config_file_defaults(const char* json) {
     if (json_is_string(driver)) {
       set_override_string(&config_file_overrides.db_driver, json_string_value(driver));
     }
+
+    json_t* listeners_json = json_object_get(database, "listeners");
+    if (json_is_array(listeners_json)) {
+      size_t num_elements = json_array_size(listeners_json);
+      const char** listeners = calloc(num_elements, sizeof(char*));
+      for (size_t i = 0; i < num_elements; i++) {
+        json_t *element = json_array_get(listeners_json, i);
+        if (!json_is_string(element)) {
+          LOG_WARN("Invalid value passed to listeners in config, expected array of strings, but found array containing: %s", json_type_to_string(element));
+          return 0;
+        }
+        listeners[i] = json_string_value(element);
+      }
+      set_override_array(&config_file_overrides.listeners,
+                         listeners, num_elements);
+      json_decref(listeners);
+    }
+
     json_t* host = json_object_get(database, "host");
     if (json_is_string(host)) {
       set_override_string(&config_file_overrides.db_host, json_string_value(host));
@@ -555,19 +683,42 @@ static void clear_config_file_overrides(void) {
   set_override_owned(&config_file_overrides.db_password, NULL);
   set_override_owned(&config_file_overrides.sqlite_filename, NULL);
   set_override_owned(&config_file_overrides.table_tables, NULL);
+  set_override_owned_array(&config_file_overrides.listeners, NULL);
 }
 
 static const char* config_file_default_for(const char* name) {
   if (!name) return NULL;
   if (strcmp(name, "MELIAN_DB_DRIVER") == 0) return config_file_overrides.db_driver;
-  if (strcmp(name, "MELIAN_DB_HOST") == 0) return config_file_overrides.db_host;
-  if (strcmp(name, "MELIAN_DB_PORT") == 0) return config_file_overrides.db_port;
   if (strcmp(name, "MELIAN_DB_NAME") == 0) return config_file_overrides.db_name;
   if (strcmp(name, "MELIAN_DB_USER") == 0) return config_file_overrides.db_user;
   if (strcmp(name, "MELIAN_DB_PASSWORD") == 0) return config_file_overrides.db_password;
+  if (strcmp(name, "MELIAN_LISTENERS") == 0) {
+    if (config_cli_overrides.listeners) return config_cli_overrides.listeners;
+    return config_file_overrides.listeners;
+  }
   if (strcmp(name, "MELIAN_SQLITE_FILENAME") == 0) return config_file_overrides.sqlite_filename;
   if (strcmp(name, "MELIAN_TABLE_TABLES") == 0) return config_file_overrides.table_tables;
   return NULL;
+}
+
+static void set_override_array(ConfigArray** field, const char** values, size_t len) {
+  if (!values) {
+    set_override_owned(field, NULL);
+    return;
+  }
+  const char** arr = calloc(len, sizeof(const char*));
+  for (int i = 0; i < len; i++) {
+    char* val = strdup(values[i]);
+    if (!val) {
+      LOG_WARN("Could not store for configuration array");
+      return;
+    }
+    arr[i] = val;
+  }
+  ConfigArray* cfg_arr = calloc(1, sizeof(ConfigArray));
+  cfg_arr->elems = arr;
+  cfg_arr->length = len;
+  set_override_owned_array(field, arr);
 }
 
 static void set_override_string(char** field, const char* value) {
@@ -582,6 +733,15 @@ static void set_override_string(char** field, const char* value) {
 
 static void set_override_owned(char** field, char* value) {
   if (*field) free(*field);
+  *field = value;
+}
+
+static void set_override_owned_array(ConfigArray** field, ConfigArray* value) {
+  if (*field) {
+    ConfigArray* f = *field;
+    for (int i = 0; i < f->length; i++) free(f->elems[i]);
+    free(f);
+  }
   *field = value;
 }
 
@@ -677,7 +837,7 @@ static char* build_tables_override(json_t* tables) {
   buf[len] = '\0';
   return buf;
 
-fail:
+ fail:
   if (buf) free(buf);
   return NULL;
 }

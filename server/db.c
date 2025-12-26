@@ -281,8 +281,8 @@ static void db_mysql_connect(DB* db) {
   MYSQL* conn = mysql_real_connect(handle, cfg->host, cfg->user, cfg->password,
                                    cfg->database, cfg->port, NULL, 0);
   if (!conn) {
-    LOG_WARN("Could not connect to MySQL server at %s:%u as user %s",
-             cfg->host, cfg->port, cfg->user);
+    LOG_WARN("Could not connect to MySQL server at %s:%u as user '%s' for database '%s'",
+             cfg->host, cfg->port, cfg->user, cfg->database);
     mysql_close(handle);
     return;
   }
