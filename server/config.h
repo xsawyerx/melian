@@ -64,6 +64,7 @@ typedef struct ConfigTable {
 
 typedef struct ConfigServer {
   unsigned show_msgs;
+  unsigned tokens;
 } ConfigServer;
 
 typedef struct ConfigFileData {

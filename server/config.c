@@ -48,6 +48,7 @@ struct ConfigFileOverrides {
   char* table_period;
   char* table_selects;
   char* table_tables;
+  char* server_tokens;
 };
 static struct ConfigFileOverrides config_file_overrides = {0};
 
@@ -115,6 +116,8 @@ Config* config_build(void) {
     }
     parse_table_specs(config, config->table.schema);
     apply_select_overrides(config);
+
+    config->server.tokens = get_config_bool("MELIAN_SERVER_TOKENS", MELIAN_DEFAULT_SERVER_TOKENS);
   } while (0);
 
   return config;
@@ -134,6 +137,7 @@ void config_show_usage(void) {
 	printf("  MELIAN_SOCKET_HOST     : host name where server will listen for TCP connections (default: %s)\n", MELIAN_DEFAULT_SOCKET_HOST);
 	printf("  MELIAN_SOCKET_PORT     : port where server will listen for TCP connections -- 0 to disable (default: %s)\n", MELIAN_DEFAULT_SOCKET_PORT);
 	printf("  MELIAN_SOCKET_PATH     : name of UNIX socket file to create -- empty to disable (default: %s)\n", MELIAN_DEFAULT_SOCKET_PATH);
+	printf("  MELIAN_SERVER_TOKENS   : whether to advertise server version in status (default: %s)\n", MELIAN_DEFAULT_SERVER_TOKENS);
 	printf("  MELIAN_TABLE_PERIOD    : how often (seconds) to refresh the data by default (default: %s)\n", MELIAN_DEFAULT_TABLE_PERIOD);
 	printf("  MELIAN_TABLE_SELECTS   : semicolon-separated list of table=SELECT ... overrides\n");
 	printf("  MELIAN_TABLE_STRIP_NULL: whether to strip null values in returned payloads (default: %s)\n", MELIAN_DEFAULT_TABLE_STRIP_NULL);
@@ -601,6 +605,20 @@ static unsigned parse_config_file_defaults(const char* json) {
     }
   }
 
+  json_t* server = json_object_get(root, "server");
+  if (json_is_object(server)) {
+    json_t* tokens = json_object_get(server, "tokens");
+    if (json_is_boolean(tokens)) {
+      set_override_string(&config_file_overrides.server_tokens,
+                          json_is_true(tokens) ? "true" : "false");
+    } else if (json_is_integer(tokens)) {
+      set_override_string(&config_file_overrides.server_tokens,
+                          json_integer_value(tokens) ? "true" : "false");
+    } else if (json_is_string(tokens)) {
+      set_override_string(&config_file_overrides.server_tokens, json_string_value(tokens));
+    }
+  }
+
   json_decref(root);
   return 1;
 }
@@ -617,6 +635,7 @@ static void clear_config_file_overrides(void) {
   set_override_owned(&config_file_overrides.table_period, NULL);
   set_override_owned(&config_file_overrides.table_selects, NULL);
   set_override_owned(&config_file_overrides.table_tables, NULL);
+  set_override_owned(&config_file_overrides.server_tokens, NULL);
 }
 
 static const char* config_file_default_for(const char* name) {
@@ -632,6 +651,7 @@ static const char* config_file_default_for(const char* name) {
   if (strcmp(name, "MELIAN_TABLE_PERIOD") == 0) return config_file_overrides.table_period;
   if (strcmp(name, "MELIAN_TABLE_SELECTS") == 0) return config_file_overrides.table_selects;
   if (strcmp(name, "MELIAN_TABLE_TABLES") == 0) return config_file_overrides.table_tables;
+  if (strcmp(name, "MELIAN_SERVER_TOKENS") == 0) return config_file_overrides.server_tokens;
   return NULL;
 }
 

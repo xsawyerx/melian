@@ -130,6 +130,9 @@ $ MELIAN_SOCKET_HOST=localhost MELIAN_SOCKET_PORT=9999 ./melian-server
 
 # Display server options
 $ ./melian-server --help
+
+# Display server version
+$ ./melian-server --version
 ```
 
 Set the database driver explicitly and adjust shared settings via config file or environment variables.
@@ -221,6 +224,7 @@ These will override any values in the config file.
 * `MELIAN_DB_PASSWORD` (config: `database.password`): password (default `meliansecret`)
 * `MELIAN_SQLITE_FILENAME` (config: `database.sqlite.filename`): SQLite database filename (default `/etc/melian.db`)
 * `MELIAN_SOCKET_PATH` (config: `socket.path`): `/tmp/melian.sock` (set to an empty string to disable the UNIX socket and enable TCP)
+* `MELIAN_SERVER_TOKENS` (config: `server.tokens`): whether to advertise the server version in status JSON (default `true`)
 * `MELIAN_TABLE_PERIOD` (config: `table.period`): `60` seconds (reload interval)
 * `MELIAN_TABLE_SELECTS` (config: `table.selects`): semicolon-separated overrides (`table=SELECT ...;table2=SELECT ...`) to customize per-table SELECT statements
 * `MELIAN_TABLE_TABLES` (config: `tables`): `table1,table2`
@@ -237,6 +241,10 @@ In JSON, use `table.selects` with a mapping of table names to their statements:
   }
 }
 ```
+
+### Versioning
+
+The server version is compiled in `protocol.h` as `MELIAN_SERVER_VERSION`. Use `--version` to print it. If you want to hide the version from the status JSON, set `MELIAN_SERVER_TOKENS=false` or `server.tokens: false` in the config file.
 
 2. Use the test client
 
