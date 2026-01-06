@@ -15,6 +15,8 @@
 #define MELIAN_DEFAULT_TABLE_PERIOD     "60"
 #define MELIAN_DEFAULT_TABLE_STRIP_NULL "false"
 #define MELIAN_DEFAULT_TABLE_TABLES     "table1#0|60|id:int,table2#1|60|id:int;hostname:string"
+#define MELIAN_DEFAULT_SERVER_TOKENS    "true"
+#define MELIAN_SERVER_VERSION           "0.5.0"
 
 typedef union MelianRequestHeader {
   uint8_t bytes[8];

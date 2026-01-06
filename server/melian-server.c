@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "protocol.h"
 #include "config.h"
 #include "data.h"
 #include "server.h"
@@ -15,6 +16,7 @@ static void show_usage(const char* prog) {
   printf("\nOptions:\n");
   printf("  -c, --configfile <path>  Use the specified JSON config file instead of autodetecting.\n");
   printf("  -h, --help               Show this help message.\n");
+  printf("      --version            Show version and exit.\n");
   printf("\nPriority order for config files:\n");
   printf("  1. Command line -c/--configfile\n");
   printf("  2. Environment variable MELIAN_CONFIG_FILE\n");
@@ -27,13 +29,15 @@ static void show_usage(const char* prog) {
 int main(int argc, char **argv) {
   signal(SIGPIPE, SIG_IGN);
   const char* cli_config_path = NULL;
+  unsigned show_version = 0;
   int opt = 0;
   static const struct option long_opts[] = {
     {"configfile", required_argument, NULL, 'c'},
     {"help", no_argument, NULL, 'h'},
+    {"version", no_argument, NULL, 'v'},
     {0, 0, 0, 0},
   };
-  while ((opt = getopt_long(argc, argv, "c:h", long_opts, NULL)) != -1) {
+  while ((opt = getopt_long(argc, argv, "c:hv", long_opts, NULL)) != -1) {
     switch (opt) {
       case 'c':
         cli_config_path = optarg;
@@ -41,6 +45,9 @@ int main(int argc, char **argv) {
       case 'h':
         show_usage(argv[0]);
         return 0;
+      case 'v':
+        show_version = 1;
+        break;
       default:
         show_usage(argv[0]);
         return 1;
@@ -60,6 +67,11 @@ int main(int argc, char **argv) {
     source = CONFIG_FILE_SOURCE_ENV;
   }
   config_set_config_file_path(final_config_path, source);
+
+  if (show_version) {
+    printf("%s\n", MELIAN_SERVER_VERSION);
+    return 0;
+  }
 
   Server* server = 0;
   do {

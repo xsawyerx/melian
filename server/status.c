@@ -11,6 +11,7 @@
 #include "arena.h"
 #include "hash.h"
 #include "config.h"
+#include "protocol.h"
 #include "data.h"
 #include "db.h"
 #include "status.h"
@@ -19,7 +20,7 @@ static unsigned get_uptime(Status* status);
 static const char* safe_string(const char* value);
 static json_t* json_epoch_object(unsigned epoch);
 static json_t* json_server_info(Status* status);
-static json_t* json_software_info(Status* status, const char* driver_key);
+static json_t* json_software_info(Status* status, Config* config, const char* driver_key);
 static json_t* json_config_info(Config* config, const char* driver_key);
 static json_t* json_process_info(Status* status);
 static json_t* json_table(Table* table);
@@ -97,7 +98,7 @@ void status_json(Status* status, Config* config, Data* data) {
   status->json.jbuf[0] = '\0';
 
   server_obj = json_server_info(status);
-  software_obj = json_software_info(status, driver_key);
+  software_obj = json_software_info(status, config, driver_key);
   config_obj = json_config_info(config, driver_key);
   process_obj = json_process_info(status);
   if (!server_obj || !software_obj || !config_obj || !process_obj) goto done;
@@ -327,7 +328,7 @@ static json_t* json_server_info(Status* status) {
                    "release", status->server.release);
 }
 
-static json_t* json_software_info(Status* status, const char* driver_key) {
+static json_t* json_software_info(Status* status, Config* config, const char* driver_key) {
   json_t* libevent = json_pack("{s:s,s:s}",
                                "version", status->libevent.version,
                                "method", status->libevent.method);
@@ -350,10 +351,21 @@ static json_t* json_software_info(Status* status, const char* driver_key) {
     json_decref(server);
     return NULL;
   }
-  json_t* software = json_pack("{s:O,s:O}", "libevent", libevent, driver_key, driver);
+  json_t* software = json_object();
   if (!software) {
     json_decref(libevent);
     json_decref(driver);
+    return NULL;
+  }
+  json_object_set_new(software, "libevent", libevent);
+  json_object_set_new(software, driver_key, driver);
+  if (config->server.tokens) {
+    json_t* melian = json_pack("{s:s}", "version", safe_string(MELIAN_SERVER_VERSION));
+    if (!melian) {
+      json_decref(software);
+      return NULL;
+    }
+    json_object_set_new(software, "melian", melian);
   }
   return software;
 }
@@ -390,7 +402,9 @@ static json_t* json_config_info(Config* config, const char* driver_key) {
     return NULL;
   }
 
-  json_t* server_cfg = json_pack("{s:b}", "show_msgs", config->server.show_msgs ? 1 : 0);
+  json_t* server_cfg = json_pack("{s:b,s:b}",
+                                 "show_msgs", config->server.show_msgs ? 1 : 0,
+                                 "tokens", config->server.tokens ? 1 : 0);
   if (!server_cfg) {
     json_decref(driver_cfg);
     json_decref(socket_cfg);
