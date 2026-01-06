@@ -10,6 +10,7 @@
 ![Raku](https://img.shields.io/badge/Raku-blue)
 
 ![MySQL](https://img.shields.io/badge/MySQL-red?logo=mysql&logoColor=ffffff)
+![MariaDB](https://img.shields.io/badge/MariaDB-red?logo=mariadb&logoColor=ffffff)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-red?logo=postgresql&logoColor=ffffff)
 ![SQLite](https://img.shields.io/badge/SQLite-red?logo=sqlite&logoColor=ffffff)
 
