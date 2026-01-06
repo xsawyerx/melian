@@ -324,11 +324,13 @@ static unsigned parse_table_specs(Config* config, const char* raw) {
       continue;
     }
     if (!spec->select_stmt[0]) {
-      int wrote = snprintf(spec->select_stmt, sizeof(spec->select_stmt), "SELECT * FROM %s", spec->name);
-      if (wrote < 0 || (size_t)wrote >= sizeof(spec->select_stmt)) {
+      char select_tmp[sizeof(spec->select_stmt)];
+      int wrote = snprintf(select_tmp, sizeof(select_tmp), "SELECT * FROM %s", spec->name);
+      if (wrote < 0 || (size_t)wrote >= sizeof(select_tmp)) {
         errno = ENOMEM;
         LOG_FATAL("Default SELECT too long for table %s", spec->name);
       }
+      memcpy(spec->select_stmt, select_tmp, sizeof(select_tmp));
     }
     ++config->table.table_count;
   }
