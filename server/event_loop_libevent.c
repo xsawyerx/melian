@@ -10,6 +10,7 @@
 #include <event2/buffer.h>
 #include <event2/bufferevent.h>
 #include <event2/listener.h>
+#include "log.h"
 #include "util.h"
 #include "event_loop.h"
 

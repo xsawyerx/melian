@@ -313,6 +313,7 @@ static void on_read(EventConn* conn, void *ctx) {
 
 // Event callback: handle disconnects and errors
 static void on_event(EventConn* conn, void *ctx, unsigned events) {
+  UNUSED(conn);
   struct conn_state_t *state = ctx;
   if (events & (EVENT_LOOP_EVENT_EOF | EVENT_LOOP_EVENT_ERROR)) {
     LOG_DEBUG("Reusing state");
