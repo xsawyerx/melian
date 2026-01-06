@@ -19,15 +19,38 @@ Melian is a blazing-fast, in-memory cache server written in C.
 
 It keeps entire or partial database tables in memory and automatically refreshes them on a schedule, making read-heavy lookups near instantaneous (sub-millisecond) while staying simple and predictable.
 
-Example:
+## Performance
 
-```bash
-melian-client -u /tmp/melian.sock -C
-C:  10000 reqs,  10000 good,   0 bad,   68 ms →  145516 req/s,   6.87210 ±  0.58135 μs/req, CV:   8%, P95:   9 μs
+Melian vs Redis:
+
+* Melian plateaus at ~580k RPS with p99 ≤ 256 µs
+* Redis reaches ~300k RPS with p99 up to 1024 µs
+* Melian is ~2× higher peak throughput and 2–4× lower p99 latency at all concurrency levels
+* Stable throughput plateau from 16–256 connections
+
+Benchmark details, run on a MacBook Pro M3 36GB:
+
+```
+Concurrency | Melian RPS | Redis RPS | Melian p99 | Redis p99
+------------+------------+-----------+------------+-----------
+1           | 157k       | 97k       | 8 µs       | 16 µs
+16          | 564k       | 265k      | 32 µs      | 64 µs
+32          | 586k       | 285k      | 32 µs      | 128 µs
+64          | 578k       | 297k      | 128 µs     | 256 µs
+256         | 578k       | 309k      | 256 µs     | 1024 µs
 ```
 
-* 145.5K RPS using over 10K records.
-* 9 microseconds for P95.
+Analyzed:
+
+```
+Concurrency | Throughput (Melian > Redis) | Tail latency (p99)
+------------+------------------------------+--------------------
+1           | 1.6×                         | 2× lower
+16          | 2.1×                         | 2× lower
+32          | 2.1×                         | 4× lower
+64          | 1.9×                         | 2× lower
+256         | 1.9×                         | 4× lower
+```
 
 ## Features
 
