@@ -1,3 +1,5 @@
+![Version](https://img.shields.io/badge/Version-0.5.0-9cf)
+
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/xsawyerx/melian/ci.yml)
 ![Issues](https://img.shields.io/github/issues/xsawyerx/melian)
 ![License](https://img.shields.io/github/license/xsawyerx/melian)
