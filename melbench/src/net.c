@@ -7,6 +7,7 @@
 #include <netdb.h>
 #include <sys/socket.h>
 #include <netinet/tcp.h>
+#include <sys/time.h>
 #include <sys/un.h>
 #include <stdlib.h>
 
@@ -30,7 +31,12 @@ int net_check_connect(const dsn_t *dsn, int timeout_ms) {
     struct sockaddr_un sa;
     memset(&sa, 0, sizeof(sa));
     sa.sun_family = AF_UNIX;
-    strncpy(sa.sun_path, dsn->path, sizeof(sa.sun_path)-1);
+    size_t path_len = strlen(dsn->path);
+    if (path_len >= sizeof(sa.sun_path)) {
+      close(fd);
+      return -1;
+    }
+    memcpy(sa.sun_path, dsn->path, path_len + 1);
     int rc = connect(fd, (struct sockaddr*)&sa, (socklen_t)sizeof(sa));
     close(fd);
     return rc == 0 ? 0 : -1;
@@ -101,7 +107,12 @@ int net_connect_nonblocking(const dsn_t *dsn) {
     struct sockaddr_un sa;
     memset(&sa, 0, sizeof(sa));
     sa.sun_family = AF_UNIX;
-    strncpy(sa.sun_path, dsn->path, sizeof(sa.sun_path)-1);
+    size_t path_len = strlen(dsn->path);
+    if (path_len >= sizeof(sa.sun_path)) {
+      close(fd);
+      return -1;
+    }
+    memcpy(sa.sun_path, dsn->path, path_len + 1);
 
     int rc = connect(fd, (struct sockaddr*)&sa, (socklen_t)sizeof(sa));
     if (rc == 0) return fd;

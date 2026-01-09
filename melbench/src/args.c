@@ -103,13 +103,23 @@ int args_parse(int argc, char **argv, bench_args_t *out) {
       if (!p1 || !p2) { fprintf(stderr, "Invalid target format: %s\n", v); return -1; }
       *p1 = '\0'; *p2 = '\0';
       bench_target_t *t = &out->targets[out->target_count++];
-      strncpy(t->label, buf, sizeof(t->label)-1);
+      size_t label_len = strlen(buf);
+      if (label_len >= sizeof(t->label)) {
+        fprintf(stderr, "Target label too long\n");
+        return -1;
+      }
+      memcpy(t->label, buf, label_len + 1);
       const char *proto = p1 + 1;
       const char *dsn = p2 + 1;
       if (!strcmp(proto, "melian")) t->proto = PROTO_MELIAN;
       else if (!strcmp(proto, "redis")) t->proto = PROTO_REDIS;
       else { fprintf(stderr, "Unknown target proto: %s\n", proto); return -1; }
-      strncpy(t->dsn, dsn, sizeof(t->dsn)-1);
+      size_t dsn_len = strlen(dsn);
+      if (dsn_len >= sizeof(t->dsn)) {
+        fprintf(stderr, "Target DSN too long\n");
+        return -1;
+      }
+      memcpy(t->dsn, dsn, dsn_len + 1);
       continue;
     }
     if (!strncmp(a, "--threads=", 10)) {

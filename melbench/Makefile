@@ -1,6 +1,6 @@
 CC ?= cc
-CFLAGS ?= -O2 -Wall -Wextra -Werror -std=c11
-LDFLAGS ?=
+CFLAGS ?= -O2 -Wall -Wextra -Werror -std=c11 -D_POSIX_C_SOURCE=200809L
+LDFLAGS ?= -lm
 
 SRC = \
   src/main.c \
