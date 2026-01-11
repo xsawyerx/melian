@@ -229,10 +229,19 @@ static void on_read(struct bufferevent *bev, void *ctx) {
       state->key_have = 0;
     }
 
-    // Step 2 (zero-copy): ensure full key payload is available
-    if (evbuffer_get_length(in) < state->key_len) {
+    // Step 2: if discarding, drain incrementally to avoid buffering updates
+    if (state->discarding) {
+      size_t avail = evbuffer_get_length(in);
+      if (avail == 0) return;
+      size_t drain = avail < state->key_len ? avail : state->key_len;
+      evbuffer_drain(in, drain);
+      state->key_len -= (uint32_t)drain;
+      if (state->key_len > 0) return;
+      // fall through to send zero response below
+    } else if (evbuffer_get_length(in) < state->key_len) {
       return; // wait for more bytes
     }
+
     const uint8_t *key_ptr = NULL;
     if (!state->discarding) {
       if (state->key_len > 0) {
