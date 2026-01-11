@@ -114,7 +114,15 @@ const Bucket* hash_get(Hash *hash, const void *key, uint32_t key_len) {
   } else {
     LOG_WARN("Discarding probe count %u -- higher than maximum: %u", probes, MAX_PROBE_COUNT);
   }
-  LOG_DEBUG("Returning %u bytes: [%.*s]", bucket->frame_len, bucket->frame_len, arena_get_ptr(hash->arena, bucket->key_idx));
+#if LOG_LEVEL_COMPILE_TIME <= LOG_LEVEL_DEBUG
+  if (bucket) {
+    LOG_DEBUG("Returning %u bytes: [%.*s]", bucket->frame_len, bucket->frame_len,
+              arena_get_ptr(hash->arena, bucket->key_idx));
+  } else {
+    LOG_DEBUG("Returning 0 bytes (miss)");
+  }
+#endif
+
   return bucket;
 }
 
