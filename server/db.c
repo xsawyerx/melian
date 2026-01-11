@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <jansson.h>
 #ifdef HAVE_MYSQL
 #include <mysql/mysql.h>
 #endif
@@ -770,59 +771,23 @@ static unsigned db_sqlite_query_into_hash(DB* db, Table* table, struct TableSlot
     int rc = SQLITE_OK;
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
       int row_ok = 1;
-      char jbuf[MAX_JSON_LEN];
-      unsigned jpos = 0;
-      int wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "{");
-      if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-        LOG_WARN("SQLite JSON buffer overflow at start of row for table %s, skipping row", table->name);
-        row_ok = 0;
-        goto row_done_sqlite;
+      json_t* row_obj = json_object();
+      if (!row_obj) {
+        LOG_WARN("SQLite JSON allocation failed for table %s, skipping row", table->name);
+        continue;
       }
-      jpos += wrote;
-      unsigned cols = 0;
       for (int col = 0; col < num_fields; ++col) {
         int col_type = sqlite3_column_type(stmt, col);
         int col_is_null = (col_type == SQLITE_NULL);
         if (db->config->table.strip_null && col_is_null) continue;
 
-        if (cols > 0) {
-          wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, ",");
-          if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-            LOG_WARN("SQLite JSON buffer overflow while separating columns for table %s, skipping row", table->name);
-            row_ok = 0;
-            goto row_done_sqlite;
-          }
-          jpos += wrote;
-        }
-        if (!json_append_escaped(jbuf, MAX_JSON_LEN, &jpos, names[col], (unsigned)strlen(names[col]))) {
-          LOG_WARN("SQLite JSON buffer overflow while writing column %s, skipping row", names[col]);
-          row_ok = 0;
-          goto row_done_sqlite;
-        }
-        if (jpos + 1 > MAX_JSON_LEN) {
-          LOG_WARN("SQLite JSON buffer overflow while writing column separator for table %s, skipping row",
-                   table->name);
-          row_ok = 0;
-          goto row_done_sqlite;
-        }
-        jbuf[jpos++] = ':';
+        json_t* jval = NULL;
         if (col_is_null) {
-          wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "null");
-          if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-            LOG_WARN("SQLite JSON buffer overflow writing null for column %s, skipping row", names[col]);
-            row_ok = 0;
-            goto row_done_sqlite;
-          }
-          jpos += wrote;
-        } else if (col_type == SQLITE_INTEGER || col_type == SQLITE_FLOAT) {
-          const unsigned char* text = sqlite3_column_text(stmt, col);
-          wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "%s", text ? (const char*)text : "0");
-          if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-            LOG_WARN("SQLite JSON buffer overflow writing numeric for column %s, skipping row", names[col]);
-            row_ok = 0;
-            goto row_done_sqlite;
-          }
-          jpos += wrote;
+          jval = json_null();
+        } else if (col_type == SQLITE_INTEGER) {
+          jval = json_integer(sqlite3_column_int64(stmt, col));
+        } else if (col_type == SQLITE_FLOAT) {
+          jval = json_real(sqlite3_column_double(stmt, col));
         } else {
           const unsigned char* text = sqlite3_column_text(stmt, col);
           unsigned tlen = (unsigned)sqlite3_column_bytes(stmt, col);
@@ -830,28 +795,38 @@ static unsigned db_sqlite_query_into_hash(DB* db, Table* table, struct TableSlot
             text = (const unsigned char*)"";
             tlen = 0;
           }
-          if (!json_append_escaped(jbuf, MAX_JSON_LEN, &jpos, (const char*)text, tlen)) {
-            LOG_WARN("SQLite JSON buffer overflow writing string for column %s, skipping row", names[col]);
-            row_ok = 0;
-            goto row_done_sqlite;
-          }
+          jval = json_stringn((const char*)text, tlen);
         }
-        ++cols;
+
+        if (!jval) {
+          LOG_WARN("SQLite JSON value build failed for column %s, skipping row", names[col]);
+          row_ok = 0;
+          break;
+        }
+        if (json_object_set_new(row_obj, names[col], jval) != 0) {
+          json_decref(jval);
+          LOG_WARN("SQLite JSON object set failed for column %s, skipping row", names[col]);
+          row_ok = 0;
+          break;
+        }
       }
-      wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "}");
-      if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-        LOG_WARN("SQLite JSON buffer overflow while closing row for table %s, skipping row", table->name);
-        row_ok = 0;
-        goto row_done_sqlite;
-      }
-      jpos += wrote;
-row_done_sqlite:
       if (!row_ok) {
+        json_decref(row_obj);
         continue;
       }
+
+      char* dump = json_dumps(row_obj, JSON_COMPACT | JSON_ENSURE_ASCII);
+      json_decref(row_obj);
+      if (!dump) {
+        LOG_WARN("SQLite JSON serialization failed for table %s, skipping row", table->name);
+        continue;
+      }
+
+      unsigned jpos = (unsigned)strlen(dump);
       ++rows;
 
-      unsigned frame = arena_store_framed(slot->arena, (uint8_t*)jbuf, jpos);
+      unsigned frame = arena_store_framed(slot->arena, (uint8_t*)dump, jpos);
+      free(dump);
       if (frame == (unsigned)-1) {
         LOG_WARN("Could not store framed JSON for SELECT query for table %s", table_name(table));
         break;
