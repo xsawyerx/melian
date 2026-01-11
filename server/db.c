@@ -28,6 +28,45 @@ enum {
   MAX_SQL_LEN = 1024,
 };
 
+static int json_append_escaped(char *buf, unsigned buf_len, unsigned *pos,
+                               const char *src, unsigned src_len) {
+  if (!buf || !pos) return 0;
+  if (*pos + 2 > buf_len) return 0;
+  buf[(*pos)++] = '"';
+  for (unsigned i = 0; i < src_len; ++i) {
+    unsigned char c = (unsigned char)src[i];
+    const char *esc = NULL;
+    char tmp[7];
+    unsigned need = 1;
+    switch (c) {
+      case '\"': esc = "\\\""; need = 2; break;
+      case '\\': esc = "\\\\"; need = 2; break;
+      case '\b': esc = "\\b";  need = 2; break;
+      case '\f': esc = "\\f";  need = 2; break;
+      case '\n': esc = "\\n";  need = 2; break;
+      case '\r': esc = "\\r";  need = 2; break;
+      case '\t': esc = "\\t";  need = 2; break;
+      default:
+        if (c < 0x20) {
+          snprintf(tmp, sizeof(tmp), "\\u%04x", c);
+          esc = tmp;
+          need = 6;
+        }
+        break;
+    }
+    if (*pos + need > buf_len) return 0;
+    if (esc) {
+      memcpy(buf + *pos, esc, need);
+      *pos += need;
+    } else {
+      buf[(*pos)++] = (char)c;
+    }
+  }
+  if (*pos + 1 > buf_len) return 0;
+  buf[(*pos)++] = '"';
+  return 1;
+}
+
 static const char* table_select_sql(Table* table) {
   if (!table) return "";
   if (!table->select_stmt[0]) {
@@ -440,6 +479,7 @@ static unsigned db_mysql_query_into_hash(DB* db, Table* table, struct TableSlot*
     *max_id = 0;
     MYSQL_ROW row;
     while ((row = mysql_fetch_row(result))) {
+      unsigned long *lengths = mysql_fetch_lengths(result);
       int row_ok = 1;
       char jbuf[MAX_JSON_LEN];
       unsigned jpos = 0;
@@ -464,14 +504,19 @@ static unsigned db_mysql_query_into_hash(DB* db, Table* table, struct TableSlot*
           }
           jpos += wrote;
         }
-        wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\":", names[col]);
-        if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+        if (!json_append_escaped(jbuf, MAX_JSON_LEN, &jpos, names[col], (unsigned)strlen(names[col]))) {
           LOG_WARN("MySQL JSON buffer overflow while writing column name %s for table %s, skipping row",
                    names[col], table->name);
           row_ok = 0;
           goto row_done_mysql;
         }
-        jpos += wrote;
+        if (jpos + 1 > MAX_JSON_LEN) {
+          LOG_WARN("MySQL JSON buffer overflow while writing column separator for table %s, skipping row",
+                   table->name);
+          row_ok = 0;
+          goto row_done_mysql;
+        }
+        jbuf[jpos++] = ':';
         if (col_is_null) {
           wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "null");
           if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
@@ -499,15 +544,16 @@ static unsigned db_mysql_query_into_hash(DB* db, Table* table, struct TableSlot*
             case MYSQL_TYPE_BLOB:
             case MYSQL_TYPE_VAR_STRING:
             case MYSQL_TYPE_STRING:
-            case MYSQL_TYPE_GEOMETRY:
-              wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\"", row[col]);
-              if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+            case MYSQL_TYPE_GEOMETRY: {
+              const char* val = row[col] ? row[col] : "";
+              unsigned vlen = lengths ? (unsigned)lengths[col] : (unsigned)strlen(val);
+              if (!json_append_escaped(jbuf, MAX_JSON_LEN, &jpos, val, vlen)) {
                 LOG_WARN("MySQL JSON buffer overflow writing string value for column %s, skipping row", names[col]);
                 row_ok = 0;
                 goto row_done_mysql;
               }
-              jpos += wrote;
               break;
+            }
             default:
               wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "%s", row[col]);
               if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
@@ -563,8 +609,8 @@ row_done_mysql:
             if (*max_id < key_int) *max_id = key_int;
           }
         } else {
-          unsigned hlen = strlen(value);
-          if (!hlen) continue;
+        unsigned hlen = lengths ? (unsigned)lengths[col_pos] : (unsigned)strlen(value);
+        if (!hlen) continue;
           if (!hash_insert(slot->indexes[idx], value, hlen, frame, jpos + sizeof(unsigned))) {
             LOG_WARN("Could not insert row for table %s key %.*s index %u",
                      table_name(table), hlen, value, idx);
@@ -748,13 +794,18 @@ static unsigned db_sqlite_query_into_hash(DB* db, Table* table, struct TableSlot
           }
           jpos += wrote;
         }
-        wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\":", names[col]);
-        if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+        if (!json_append_escaped(jbuf, MAX_JSON_LEN, &jpos, names[col], (unsigned)strlen(names[col]))) {
           LOG_WARN("SQLite JSON buffer overflow while writing column %s, skipping row", names[col]);
           row_ok = 0;
           goto row_done_sqlite;
         }
-        jpos += wrote;
+        if (jpos + 1 > MAX_JSON_LEN) {
+          LOG_WARN("SQLite JSON buffer overflow while writing column separator for table %s, skipping row",
+                   table->name);
+          row_ok = 0;
+          goto row_done_sqlite;
+        }
+        jbuf[jpos++] = ':';
         if (col_is_null) {
           wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "null");
           if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
@@ -774,13 +825,16 @@ static unsigned db_sqlite_query_into_hash(DB* db, Table* table, struct TableSlot
           jpos += wrote;
         } else {
           const unsigned char* text = sqlite3_column_text(stmt, col);
-          wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\"", text ? (const char*)text : "");
-          if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+          unsigned tlen = (unsigned)sqlite3_column_bytes(stmt, col);
+          if (!text) {
+            text = (const unsigned char*)"";
+            tlen = 0;
+          }
+          if (!json_append_escaped(jbuf, MAX_JSON_LEN, &jpos, (const char*)text, tlen)) {
             LOG_WARN("SQLite JSON buffer overflow writing string for column %s, skipping row", names[col]);
             row_ok = 0;
             goto row_done_sqlite;
           }
-          jpos += wrote;
         }
         ++cols;
       }
@@ -1039,13 +1093,18 @@ static unsigned db_postgresql_query_into_hash(DB* db, Table* table, struct Table
         }
         jpos += wrote;
       }
-      wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\":", names[col]);
-      if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
+      if (!json_append_escaped(jbuf, MAX_JSON_LEN, &jpos, names[col], (unsigned)strlen(names[col]))) {
         LOG_WARN("PostgreSQL JSON buffer overflow while writing column %s, skipping row", names[col]);
         row_ok = 0;
         goto row_done_postgres;
       }
-      jpos += wrote;
+      if (jpos + 1 > MAX_JSON_LEN) {
+        LOG_WARN("PostgreSQL JSON buffer overflow while writing column separator for table %s, skipping row",
+                 table->name);
+        row_ok = 0;
+        goto row_done_postgres;
+      }
+      jbuf[jpos++] = ':';
       if (col_is_null) {
         wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "null");
         if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
@@ -1073,13 +1132,15 @@ static unsigned db_postgresql_query_into_hash(DB* db, Table* table, struct Table
             jpos += wrote;
             break;
           default:
-            wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\"", value);
-            if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-              LOG_WARN("PostgreSQL JSON buffer overflow writing string value for column %s, skipping row", names[col]);
-              row_ok = 0;
-              goto row_done_postgres;
+            {
+              int vlen = PQgetlength(res, row, col);
+              if (vlen < 0) vlen = 0;
+              if (!json_append_escaped(jbuf, MAX_JSON_LEN, &jpos, value, (unsigned)vlen)) {
+                LOG_WARN("PostgreSQL JSON buffer overflow writing string value for column %s, skipping row", names[col]);
+                row_ok = 0;
+                goto row_done_postgres;
+              }
             }
-            jpos += wrote;
             break;
         }
       }
