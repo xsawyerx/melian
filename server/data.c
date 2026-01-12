@@ -133,6 +133,10 @@ unsigned table_load_from_db(Table* table, struct DB* db, unsigned now, unsigned 
   unsigned min_id = (unsigned) -1;
   unsigned max_id = 0;
   unsigned rows = db_query_into_hash(db, table, slot, &min_id, &max_id);
+  if (rows == (unsigned)-1) {
+    LOG_WARN("Skipping reload for table %s due to invalid schema data", table->name);
+    return 0;
+  }
   LOG_INFO("Loaded %u rows for table %s at slot %u", rows, table->name, pos);
 
   table->stats.last_loaded = now;
