@@ -114,7 +114,6 @@ const Bucket* hash_get(Hash *hash, const void *key, uint32_t key_len) {
   } else {
     LOG_WARN("Discarding probe count %u -- higher than maximum: %u", probes, MAX_PROBE_COUNT);
   }
-  LOG_DEBUG("Returning %u bytes: [%.*s]", bucket->frame_len, bucket->frame_len, arena_get_ptr(hash->arena, bucket->key_idx));
   return bucket;
 }
 
