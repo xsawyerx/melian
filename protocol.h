@@ -55,6 +55,17 @@ enum MelianAction {
   MELIAN_ACTION_QUIT                = 'q',
 };
 
+// Binary row field types for MELIAN_ACTION_FETCH responses.
+// All integer/floating values are little-endian.
+enum MelianValueType {
+  MELIAN_VALUE_NULL    = 0,
+  MELIAN_VALUE_INT64   = 1,
+  MELIAN_VALUE_FLOAT64 = 2,
+  MELIAN_VALUE_BYTES   = 3,
+  MELIAN_VALUE_DECIMAL = 4,
+  MELIAN_VALUE_BOOL    = 5,
+};
+
 // Legacy action aliases (deprecated).
 #define MELIAN_ACTION_QUERY_TABLE1_BY_ID   'U'
 #define MELIAN_ACTION_QUERY_TABLE2_BY_ID   'C'

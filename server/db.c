@@ -24,9 +24,26 @@
 enum {
   MAX_FIELDS = 99,
   MAX_FIELD_NAME_LEN = 100,
-  MAX_JSON_LEN = 10240,
   MAX_SQL_LEN = 1024,
 };
+
+static void write_le16(uint8_t *buf, uint16_t v) {
+  buf[0] = (uint8_t)(v & 0xff);
+  buf[1] = (uint8_t)((v >> 8) & 0xff);
+}
+
+static void write_le32(uint8_t *buf, uint32_t v) {
+  buf[0] = (uint8_t)(v & 0xff);
+  buf[1] = (uint8_t)((v >> 8) & 0xff);
+  buf[2] = (uint8_t)((v >> 16) & 0xff);
+  buf[3] = (uint8_t)((v >> 24) & 0xff);
+}
+
+static void write_le64(uint8_t *buf, uint64_t v) {
+  for (int i = 0; i < 8; ++i) {
+    buf[i] = (uint8_t)((v >> (i * 8)) & 0xff);
+  }
+}
 
 static const char* table_select_sql(Table* table) {
   if (!table) return "";
@@ -440,105 +457,115 @@ static unsigned db_mysql_query_into_hash(DB* db, Table* table, struct TableSlot*
     *max_id = 0;
     MYSQL_ROW row;
     while ((row = mysql_fetch_row(result))) {
-      int row_ok = 1;
-      char jbuf[MAX_JSON_LEN];
-      unsigned jpos = 0;
-      int wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "{");
-      if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-        LOG_WARN("MySQL JSON buffer overflow at start of row for table %s, skipping row", table->name);
-        row_ok = 0;
-        goto row_done_mysql;
-      }
-      jpos += wrote;
-      unsigned cols = 0;
+      unsigned long *lengths = mysql_fetch_lengths(result);
+      const char* field_names[MAX_FIELDS];
+      uint16_t field_name_lens[MAX_FIELDS];
+      uint8_t field_types[MAX_FIELDS];
+      const uint8_t* field_vals[MAX_FIELDS];
+      uint32_t field_val_lens[MAX_FIELDS];
+      int64_t field_i64[MAX_FIELDS];
+      double field_f64[MAX_FIELDS];
+      unsigned field_count = 0;
+
       for (unsigned col = 0; col < num_fields; col++) {
         unsigned col_is_null = !row[col] || types[col] == MYSQL_TYPE_NULL;
         if (db->config->table.strip_null && col_is_null) continue;
 
-        if (cols > 0) {
-          wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, ",");
-          if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-            LOG_WARN("MySQL JSON buffer overflow while separating columns for table %s, skipping row", table->name);
-            row_ok = 0;
-            goto row_done_mysql;
-          }
-          jpos += wrote;
+        if (field_count >= MAX_FIELDS) {
+          LOG_WARN("MySQL field count exceeded for table %s, skipping row", table->name);
+          field_count = 0;
+          break;
         }
-        wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\":", names[col]);
-        if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-          LOG_WARN("MySQL JSON buffer overflow while writing column name %s for table %s, skipping row",
-                   names[col], table->name);
-          row_ok = 0;
-          goto row_done_mysql;
-        }
-        jpos += wrote;
+
+        field_names[field_count] = names[col];
+        field_name_lens[field_count] = (uint16_t)strlen(names[col]);
+
         if (col_is_null) {
-          wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "null");
-          if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-            LOG_WARN("MySQL JSON buffer overflow writing null for column %s, skipping row", names[col]);
-            row_ok = 0;
-            goto row_done_mysql;
-          }
-          jpos += wrote;
-        } else {
-          switch (types[col]) {
-            case MYSQL_TYPE_TIMESTAMP:
-            case MYSQL_TYPE_DATE:
-            case MYSQL_TYPE_TIME:
-            case MYSQL_TYPE_DATETIME:
-            case MYSQL_TYPE_VARCHAR:
-            case MYSQL_TYPE_TIMESTAMP2:
-            case MYSQL_TYPE_DATETIME2:
-            case MYSQL_TYPE_TIME2:
-            case MYSQL_TYPE_JSON:
-            case MYSQL_TYPE_ENUM:
-            case MYSQL_TYPE_SET:
-            case MYSQL_TYPE_TINY_BLOB:
-            case MYSQL_TYPE_MEDIUM_BLOB:
-            case MYSQL_TYPE_LONG_BLOB:
-            case MYSQL_TYPE_BLOB:
-            case MYSQL_TYPE_VAR_STRING:
-            case MYSQL_TYPE_STRING:
-            case MYSQL_TYPE_GEOMETRY:
-              wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\"", row[col]);
-              if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-                LOG_WARN("MySQL JSON buffer overflow writing string value for column %s, skipping row", names[col]);
-                row_ok = 0;
-                goto row_done_mysql;
-              }
-              jpos += wrote;
-              break;
-            default:
-              wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "%s", row[col]);
-              if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-                LOG_WARN("MySQL JSON buffer overflow writing numeric value for column %s, skipping row", names[col]);
-                row_ok = 0;
-                goto row_done_mysql;
-              }
-              jpos += wrote;
-              break;
-          }
+          field_types[field_count] = MELIAN_VALUE_NULL;
+          field_vals[field_count] = NULL;
+          field_val_lens[field_count] = 0;
+          field_count++;
+          continue;
         }
-        ++cols;
+
+        switch (types[col]) {
+          case MYSQL_TYPE_DECIMAL:
+          case MYSQL_TYPE_NEWDECIMAL:
+            field_types[field_count] = MELIAN_VALUE_DECIMAL;
+            field_vals[field_count] = (const uint8_t*)row[col];
+            field_val_lens[field_count] = lengths ? (uint32_t)lengths[col] : (uint32_t)strlen(row[col]);
+            break;
+          case MYSQL_TYPE_TINY:
+          case MYSQL_TYPE_SHORT:
+          case MYSQL_TYPE_LONG:
+          case MYSQL_TYPE_INT24:
+          case MYSQL_TYPE_LONGLONG:
+          case MYSQL_TYPE_YEAR:
+            field_types[field_count] = MELIAN_VALUE_INT64;
+            field_i64[field_count] = row[col] ? strtoll(row[col], NULL, 10) : 0;
+            field_val_lens[field_count] = 8;
+            break;
+          case MYSQL_TYPE_FLOAT:
+          case MYSQL_TYPE_DOUBLE:
+            field_types[field_count] = MELIAN_VALUE_FLOAT64;
+            field_f64[field_count] = row[col] ? strtod(row[col], NULL) : 0.0;
+            field_val_lens[field_count] = 8;
+            break;
+          default:
+            field_types[field_count] = MELIAN_VALUE_BYTES;
+            field_vals[field_count] = (const uint8_t*)row[col];
+            field_val_lens[field_count] = lengths ? (uint32_t)lengths[col] : (uint32_t)strlen(row[col]);
+            break;
+        }
+        field_count++;
       }
-      wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "}");
-      if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-        LOG_WARN("MySQL JSON buffer overflow while closing row for table %s, skipping row", table->name);
-        row_ok = 0;
-        goto row_done_mysql;
+
+      if (!field_count) continue;
+
+      size_t row_size = 4;
+      for (unsigned f = 0; f < field_count; ++f) {
+        row_size += 2 + field_name_lens[f] + 1 + 4 + field_val_lens[f];
       }
-      jpos += wrote;
-row_done_mysql:
-      if (!row_ok) {
+      if (row_size > UINT32_MAX) {
+        LOG_WARN("MySQL row payload exceeds 4GB for table %s, skipping row", table->name);
         continue;
       }
-      ++rows;
-      LOG_DEBUG("Fetched row %u: %p %u [%.*s]", rows, row, jpos, jpos, jbuf);
 
-      unsigned frame = arena_store_framed(slot->arena, (uint8_t*)jbuf, jpos);
-      LOG_DEBUG("Stored frame %p", frame);
+      uint8_t *row_buf = malloc(row_size);
+      if (!row_buf) {
+        LOG_WARN("MySQL could not allocate row buffer for table %s, skipping row", table->name);
+        continue;
+      }
+
+      size_t pos = 0;
+      write_le32(row_buf + pos, field_count);
+      pos += 4;
+      for (unsigned f = 0; f < field_count; ++f) {
+        write_le16(row_buf + pos, field_name_lens[f]);
+        pos += 2;
+        memcpy(row_buf + pos, field_names[f], field_name_lens[f]);
+        pos += field_name_lens[f];
+        row_buf[pos++] = field_types[f];
+        write_le32(row_buf + pos, field_val_lens[f]);
+        pos += 4;
+        if (field_types[f] == MELIAN_VALUE_INT64) {
+          write_le64(row_buf + pos, (uint64_t)field_i64[f]);
+          pos += 8;
+        } else if (field_types[f] == MELIAN_VALUE_FLOAT64) {
+          uint64_t bits = 0;
+          memcpy(&bits, &field_f64[f], sizeof(bits));
+          write_le64(row_buf + pos, bits);
+          pos += 8;
+        } else if (field_val_lens[f] > 0) {
+          memcpy(row_buf + pos, field_vals[f], field_val_lens[f]);
+          pos += field_val_lens[f];
+        }
+      }
+
+      unsigned frame = arena_store_framed(slot->arena, row_buf, (unsigned)row_size);
+      free(row_buf);
       if (frame == (unsigned)-1) {
-        LOG_WARN("Could not store framed JSON for SELECT query for table %s", table_name(table));
+        LOG_WARN("Could not store framed row for SELECT query for table %s", table_name(table));
         break;
       }
 
@@ -552,7 +579,7 @@ row_done_mysql:
         if (table->indexes[idx].type == CONFIG_INDEX_TYPE_INT) {
           unsigned key_int = (unsigned) atoi(value);
           if (!hash_insert(slot->indexes[idx], &key_int, sizeof(unsigned),
-                           frame, jpos + sizeof(unsigned))) {
+                           frame, (unsigned)row_size + sizeof(unsigned))) {
             LOG_WARN("Could not insert row for table %s key %u index %u",
                      table_name(table), key_int, idx);
             insert_error = 1;
@@ -563,9 +590,9 @@ row_done_mysql:
             if (*max_id < key_int) *max_id = key_int;
           }
         } else {
-          unsigned hlen = strlen(value);
+          unsigned hlen = lengths ? (unsigned)lengths[col_pos] : (unsigned)strlen(value);
           if (!hlen) continue;
-          if (!hash_insert(slot->indexes[idx], value, hlen, frame, jpos + sizeof(unsigned))) {
+          if (!hash_insert(slot->indexes[idx], value, hlen, frame, (unsigned)row_size + sizeof(unsigned))) {
             LOG_WARN("Could not insert row for table %s key %.*s index %u",
                      table_name(table), hlen, value, idx);
             insert_error = 1;
@@ -574,6 +601,7 @@ row_done_mysql:
         }
       }
       if (insert_error) break;
+      ++rows;
     }
     double t1 = now_sec();
     unsigned long elapsed = (t1 - t0) * 1000000;
@@ -723,83 +751,110 @@ static unsigned db_sqlite_query_into_hash(DB* db, Table* table, struct TableSlot
     *max_id = 0;
     int rc = SQLITE_OK;
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-      int row_ok = 1;
-      char jbuf[MAX_JSON_LEN];
-      unsigned jpos = 0;
-      int wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "{");
-      if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-        LOG_WARN("SQLite JSON buffer overflow at start of row for table %s, skipping row", table->name);
-        row_ok = 0;
-        goto row_done_sqlite;
-      }
-      jpos += wrote;
-      unsigned cols = 0;
+      const char* field_names[MAX_FIELDS];
+      uint16_t field_name_lens[MAX_FIELDS];
+      uint8_t field_types[MAX_FIELDS];
+      const uint8_t* field_vals[MAX_FIELDS];
+      uint32_t field_val_lens[MAX_FIELDS];
+      int64_t field_i64[MAX_FIELDS];
+      double field_f64[MAX_FIELDS];
+      unsigned field_count = 0;
+
       for (int col = 0; col < num_fields; ++col) {
         int col_type = sqlite3_column_type(stmt, col);
         int col_is_null = (col_type == SQLITE_NULL);
         if (db->config->table.strip_null && col_is_null) continue;
 
-        if (cols > 0) {
-          wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, ",");
-          if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-            LOG_WARN("SQLite JSON buffer overflow while separating columns for table %s, skipping row", table->name);
-            row_ok = 0;
-            goto row_done_sqlite;
-          }
-          jpos += wrote;
+        if (field_count >= MAX_FIELDS) {
+          LOG_WARN("SQLite field count exceeded for table %s, skipping row", table->name);
+          field_count = 0;
+          break;
         }
-        wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\":", names[col]);
-        if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-          LOG_WARN("SQLite JSON buffer overflow while writing column %s, skipping row", names[col]);
-          row_ok = 0;
-          goto row_done_sqlite;
-        }
-        jpos += wrote;
+
+        field_names[field_count] = names[col];
+        field_name_lens[field_count] = (uint16_t)strlen(names[col]);
+
         if (col_is_null) {
-          wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "null");
-          if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-            LOG_WARN("SQLite JSON buffer overflow writing null for column %s, skipping row", names[col]);
-            row_ok = 0;
-            goto row_done_sqlite;
-          }
-          jpos += wrote;
-        } else if (col_type == SQLITE_INTEGER || col_type == SQLITE_FLOAT) {
-          const unsigned char* text = sqlite3_column_text(stmt, col);
-          wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "%s", text ? (const char*)text : "0");
-          if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-            LOG_WARN("SQLite JSON buffer overflow writing numeric for column %s, skipping row", names[col]);
-            row_ok = 0;
-            goto row_done_sqlite;
-          }
-          jpos += wrote;
-        } else {
-          const unsigned char* text = sqlite3_column_text(stmt, col);
-          wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\"", text ? (const char*)text : "");
-          if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-            LOG_WARN("SQLite JSON buffer overflow writing string for column %s, skipping row", names[col]);
-            row_ok = 0;
-            goto row_done_sqlite;
-          }
-          jpos += wrote;
+          field_types[field_count] = MELIAN_VALUE_NULL;
+          field_vals[field_count] = NULL;
+          field_val_lens[field_count] = 0;
+          field_count++;
+          continue;
         }
-        ++cols;
+
+        if (col_type == SQLITE_INTEGER) {
+          field_types[field_count] = MELIAN_VALUE_INT64;
+          field_i64[field_count] = sqlite3_column_int64(stmt, col);
+          field_val_lens[field_count] = 8;
+        } else if (col_type == SQLITE_FLOAT) {
+          field_types[field_count] = MELIAN_VALUE_FLOAT64;
+          field_f64[field_count] = sqlite3_column_double(stmt, col);
+          field_val_lens[field_count] = 8;
+        } else {
+          const uint8_t* data = NULL;
+          unsigned dlen = (unsigned)sqlite3_column_bytes(stmt, col);
+          if (col_type == SQLITE_BLOB) {
+            data = (const uint8_t*)sqlite3_column_blob(stmt, col);
+          } else {
+            data = (const uint8_t*)sqlite3_column_text(stmt, col);
+          }
+          if (!data) {
+            data = (const uint8_t*)"";
+            dlen = 0;
+          }
+          field_types[field_count] = MELIAN_VALUE_BYTES;
+          field_vals[field_count] = data;
+          field_val_lens[field_count] = dlen;
+        }
+        field_count++;
       }
-      wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "}");
-      if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-        LOG_WARN("SQLite JSON buffer overflow while closing row for table %s, skipping row", table->name);
-        row_ok = 0;
-        goto row_done_sqlite;
+
+      if (!field_count) continue;
+
+      size_t row_size = 4;
+      for (unsigned f = 0; f < field_count; ++f) {
+        row_size += 2 + field_name_lens[f] + 1 + 4 + field_val_lens[f];
       }
-      jpos += wrote;
-row_done_sqlite:
-      if (!row_ok) {
+      if (row_size > UINT32_MAX) {
+        LOG_WARN("SQLite row payload exceeds 4GB for table %s, skipping row", table->name);
         continue;
       }
-      ++rows;
 
-      unsigned frame = arena_store_framed(slot->arena, (uint8_t*)jbuf, jpos);
+      uint8_t *row_buf = malloc(row_size);
+      if (!row_buf) {
+        LOG_WARN("SQLite could not allocate row buffer for table %s, skipping row", table->name);
+        continue;
+      }
+
+      size_t pos = 0;
+      write_le32(row_buf + pos, field_count);
+      pos += 4;
+      for (unsigned f = 0; f < field_count; ++f) {
+        write_le16(row_buf + pos, field_name_lens[f]);
+        pos += 2;
+        memcpy(row_buf + pos, field_names[f], field_name_lens[f]);
+        pos += field_name_lens[f];
+        row_buf[pos++] = field_types[f];
+        write_le32(row_buf + pos, field_val_lens[f]);
+        pos += 4;
+        if (field_types[f] == MELIAN_VALUE_INT64) {
+          write_le64(row_buf + pos, (uint64_t)field_i64[f]);
+          pos += 8;
+        } else if (field_types[f] == MELIAN_VALUE_FLOAT64) {
+          uint64_t bits = 0;
+          memcpy(&bits, &field_f64[f], sizeof(bits));
+          write_le64(row_buf + pos, bits);
+          pos += 8;
+        } else if (field_val_lens[f] > 0) {
+          memcpy(row_buf + pos, field_vals[f], field_val_lens[f]);
+          pos += field_val_lens[f];
+        }
+      }
+
+      unsigned frame = arena_store_framed(slot->arena, row_buf, (unsigned)row_size);
+      free(row_buf);
       if (frame == (unsigned)-1) {
-        LOG_WARN("Could not store framed JSON for SELECT query for table %s", table_name(table));
+        LOG_WARN("Could not store framed row for SELECT query for table %s", table_name(table));
         break;
       }
 
@@ -810,7 +865,8 @@ row_done_sqlite:
         if (!slot->indexes[idx]) continue;
         if (table->indexes[idx].type == CONFIG_INDEX_TYPE_INT) {
           unsigned key_int = (unsigned) sqlite3_column_int64(stmt, col_pos);
-          if (!hash_insert(slot->indexes[idx], &key_int, sizeof(unsigned), frame, jpos + sizeof(unsigned))) {
+          if (!hash_insert(slot->indexes[idx], &key_int, sizeof(unsigned),
+                           frame, (unsigned)row_size + sizeof(unsigned))) {
             LOG_WARN("Could not insert row for table %s key %u index %u",
                      table_name(table), key_int, idx);
             insert_error = 1;
@@ -824,7 +880,8 @@ row_done_sqlite:
           const unsigned char* value = sqlite3_column_text(stmt, col_pos);
           unsigned hlen = (unsigned) sqlite3_column_bytes(stmt, col_pos);
           if (!value || !hlen) continue;
-          if (!hash_insert(slot->indexes[idx], value, hlen, frame, jpos + sizeof(unsigned))) {
+          if (!hash_insert(slot->indexes[idx], value, hlen,
+                           frame, (unsigned)row_size + sizeof(unsigned))) {
             LOG_WARN("Could not insert row for table %s key %.*s index %u",
                      table_name(table), hlen, value, idx);
             insert_error = 1;
@@ -833,6 +890,7 @@ row_done_sqlite:
         }
       }
       if (insert_error) break;
+      ++rows;
     }
     if (rc != SQLITE_DONE) {
       LOG_WARN("Error fetching rows from table %s: %s", table_name(table), sqlite3_errmsg(db->sqlite));
@@ -1016,90 +1074,122 @@ static unsigned db_postgresql_query_into_hash(DB* db, Table* table, struct Table
   double t0 = now_sec();
   int num_rows = PQntuples(res);
   for (int row = 0; row < num_rows; ++row) {
-    int row_ok = 1;
-    char jbuf[MAX_JSON_LEN];
-    unsigned jpos = 0;
-    int wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "{");
-    if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-      LOG_WARN("PostgreSQL JSON buffer overflow at start of row for table %s, skipping row", table->name);
-      row_ok = 0;
-      goto row_done_postgres;
-    }
-    jpos += wrote;
-    unsigned cols = 0;
+    const char* field_names[MAX_FIELDS];
+    uint16_t field_name_lens[MAX_FIELDS];
+    uint8_t field_types[MAX_FIELDS];
+    const uint8_t* field_vals[MAX_FIELDS];
+    uint32_t field_val_lens[MAX_FIELDS];
+    int64_t field_i64[MAX_FIELDS];
+    double field_f64[MAX_FIELDS];
+    unsigned field_count = 0;
+
     for (int col = 0; col < num_fields; ++col) {
       int col_is_null = PQgetisnull(res, row, col);
       if (db->config->table.strip_null && col_is_null) continue;
-      if (cols > 0) {
-        wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, ",");
-        if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-          LOG_WARN("PostgreSQL JSON buffer overflow while separating columns for table %s, skipping row", table->name);
-          row_ok = 0;
-          goto row_done_postgres;
-        }
-        jpos += wrote;
+
+      if (field_count >= MAX_FIELDS) {
+        LOG_WARN("PostgreSQL field count exceeded for table %s, skipping row", table->name);
+        field_count = 0;
+        break;
       }
-      wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\":", names[col]);
-      if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-        LOG_WARN("PostgreSQL JSON buffer overflow while writing column %s, skipping row", names[col]);
-        row_ok = 0;
-        goto row_done_postgres;
-      }
-      jpos += wrote;
+
+      field_names[field_count] = names[col];
+      field_name_lens[field_count] = (uint16_t)strlen(names[col]);
+
       if (col_is_null) {
-        wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "null");
-        if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-          LOG_WARN("PostgreSQL JSON buffer overflow writing null for column %s, skipping row", names[col]);
-          row_ok = 0;
-          goto row_done_postgres;
-        }
-        jpos += wrote;
-      } else {
-        const char* value = PQgetvalue(res, row, col);
-        if (!value) value = "";
-        switch (PQftype(res, col)) {
-          case 20:
-          case 21:
-          case 23:
-          case 700:
-          case 701:
-          case 1700:
-            wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "%s", value);
-            if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-              LOG_WARN("PostgreSQL JSON buffer overflow writing numeric value for column %s, skipping row", names[col]);
-              row_ok = 0;
-              goto row_done_postgres;
-            }
-            jpos += wrote;
-            break;
-          default:
-            wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "\"%s\"", value);
-            if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-              LOG_WARN("PostgreSQL JSON buffer overflow writing string value for column %s, skipping row", names[col]);
-              row_ok = 0;
-              goto row_done_postgres;
-            }
-            jpos += wrote;
-            break;
-        }
+        field_types[field_count] = MELIAN_VALUE_NULL;
+        field_vals[field_count] = NULL;
+        field_val_lens[field_count] = 0;
+        field_count++;
+        continue;
       }
-      ++cols;
+
+      const char* value = PQgetvalue(res, row, col);
+      if (!value) value = "";
+      int vlen = PQgetlength(res, row, col);
+      if (vlen < 0) vlen = 0;
+
+      switch (PQftype(res, col)) {
+        case 16:  // bool
+          field_types[field_count] = MELIAN_VALUE_BOOL;
+          field_i64[field_count] = (value[0] == 't' || value[0] == '1') ? 1 : 0;
+          field_val_lens[field_count] = 1;
+          break;
+        case 20:
+        case 21:
+        case 23:
+          field_types[field_count] = MELIAN_VALUE_INT64;
+          field_i64[field_count] = strtoll(value, NULL, 10);
+          field_val_lens[field_count] = 8;
+          break;
+        case 700:
+        case 701:
+          field_types[field_count] = MELIAN_VALUE_FLOAT64;
+          field_f64[field_count] = strtod(value, NULL);
+          field_val_lens[field_count] = 8;
+          break;
+        case 1700:
+          field_types[field_count] = MELIAN_VALUE_DECIMAL;
+          field_vals[field_count] = (const uint8_t*)value;
+          field_val_lens[field_count] = (uint32_t)vlen;
+          break;
+        default:
+          field_types[field_count] = MELIAN_VALUE_BYTES;
+          field_vals[field_count] = (const uint8_t*)value;
+          field_val_lens[field_count] = (uint32_t)vlen;
+          break;
+      }
+      field_count++;
     }
-    wrote = snprintf(jbuf + jpos, MAX_JSON_LEN - jpos, "}");
-    if (wrote < 0 || (size_t)wrote >= MAX_JSON_LEN - jpos) {
-      LOG_WARN("PostgreSQL JSON buffer overflow while closing row for table %s, skipping row", table->name);
-      row_ok = 0;
-      goto row_done_postgres;
+
+    if (!field_count) continue;
+
+    size_t row_size = 4;
+    for (unsigned f = 0; f < field_count; ++f) {
+      row_size += 2 + field_name_lens[f] + 1 + 4 + field_val_lens[f];
     }
-    jpos += wrote;
-row_done_postgres:
-    if (!row_ok) {
+    if (row_size > UINT32_MAX) {
+      LOG_WARN("PostgreSQL row payload exceeds 4GB for table %s, skipping row", table->name);
       continue;
     }
-    ++rows;
-    unsigned frame = arena_store_framed(slot->arena, (uint8_t*)jbuf, jpos);
+
+    uint8_t *row_buf = malloc(row_size);
+    if (!row_buf) {
+      LOG_WARN("PostgreSQL could not allocate row buffer for table %s, skipping row", table->name);
+      continue;
+    }
+
+    size_t pos = 0;
+    write_le32(row_buf + pos, field_count);
+    pos += 4;
+    for (unsigned f = 0; f < field_count; ++f) {
+      write_le16(row_buf + pos, field_name_lens[f]);
+      pos += 2;
+      memcpy(row_buf + pos, field_names[f], field_name_lens[f]);
+      pos += field_name_lens[f];
+      row_buf[pos++] = field_types[f];
+      write_le32(row_buf + pos, field_val_lens[f]);
+      pos += 4;
+      if (field_types[f] == MELIAN_VALUE_INT64) {
+        write_le64(row_buf + pos, (uint64_t)field_i64[f]);
+        pos += 8;
+      } else if (field_types[f] == MELIAN_VALUE_FLOAT64) {
+        uint64_t bits = 0;
+        memcpy(&bits, &field_f64[f], sizeof(bits));
+        write_le64(row_buf + pos, bits);
+        pos += 8;
+      } else if (field_types[f] == MELIAN_VALUE_BOOL) {
+        row_buf[pos++] = (uint8_t)(field_i64[f] ? 1 : 0);
+      } else if (field_val_lens[f] > 0) {
+        memcpy(row_buf + pos, field_vals[f], field_val_lens[f]);
+        pos += field_val_lens[f];
+      }
+    }
+
+    unsigned frame = arena_store_framed(slot->arena, row_buf, (unsigned)row_size);
+    free(row_buf);
     if (frame == (unsigned)-1) {
-      LOG_WARN("Could not store framed JSON for SELECT query for table %s", table_name(table));
+      LOG_WARN("Could not store framed row for SELECT query for table %s", table_name(table));
       break;
     }
     int insert_error = 0;
@@ -1111,7 +1201,7 @@ row_done_postgres:
         const char* value = PQgetvalue(res, row, col_pos);
         unsigned key_int = (unsigned) strtoul(value ? value : "0", 0, 10);
         if (!hash_insert(slot->indexes[idx], &key_int, sizeof(unsigned),
-                         frame, jpos + sizeof(unsigned))) {
+                         frame, (unsigned)row_size + sizeof(unsigned))) {
           LOG_WARN("Could not insert row for table %s key %u index %u",
                    table_name(table), key_int, idx);
           insert_error = 1;
@@ -1125,7 +1215,8 @@ row_done_postgres:
         const char* value = PQgetvalue(res, row, col_pos);
         int hlen = PQgetlength(res, row, col_pos);
         if (!value || !hlen) continue;
-        if (!hash_insert(slot->indexes[idx], value, (unsigned) hlen, frame, jpos + sizeof(unsigned))) {
+        if (!hash_insert(slot->indexes[idx], value, (unsigned) hlen,
+                         frame, (unsigned)row_size + sizeof(unsigned))) {
           LOG_WARN("Could not insert row for table %s key %.*s index %u",
                    table_name(table), hlen, value, idx);
           insert_error = 1;
@@ -1134,6 +1225,7 @@ row_done_postgres:
       }
     }
     if (insert_error) break;
+    ++rows;
   }
   double t1 = now_sec();
   unsigned long elapsed = (t1 - t0) * 1000000;

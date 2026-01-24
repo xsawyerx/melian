@@ -65,6 +65,31 @@ Concurrency | Throughput (Melian > Redis) | Tail latency (p99)
 * Dual-key indexing: look up entries by numeric or string key.
 * Clients in [Node.js](https://github.com/xsawyerx/melian-nodejs), [Python](https://github.com/xsawyerx/melian-python), [C](https://github.com/xsawyerx/melian/tree/main/clients/c), [Perl](https://metacpan.org/pod/Melian), [PHP](https://github.com/xsawyerx/melian-php/), and [Raku](https://github.com/xsawyerx/melian-raku).
 * Runtime performance statistics: query table size, min/max ID, and memory usage.
+* Binary row payloads: length-prefixed field name/type/value encoding for fast decode and byte-accurate values.
+
+## Binary Row Format
+
+Fetch responses return a binary payload with the following layout (all integer
+fields are little-endian):
+
+- `u32 field_count`
+- Repeated `field_count` times:
+  - `u16 name_len`
+  - `bytes name[name_len]` (UTF-8 column name)
+  - `u8 type`
+  - `u32 value_len`
+  - `bytes value[value_len]` (absent for NULL types)
+
+Type IDs:
+
+- `0` NULL (no value bytes)
+- `1` INT64 (8 bytes, signed)
+- `2` FLOAT64 (8 bytes, IEEE-754)
+- `3` BYTES (raw bytes)
+- `4` DECIMAL (ASCII bytes)
+- `5` BOOL (1 byte, 0 or 1)
+
+Clients decode this payload into per-field `{type, value}` pairs.
 
 ## Why
 
