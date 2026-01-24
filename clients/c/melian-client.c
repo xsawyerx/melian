@@ -2,7 +2,7 @@
 #include "client.h"
 
 static void show_usage(const char* progname) {
-  fprintf(stderr, "A test client for the blazing parrot server\n");
+  fprintf(stderr, "A test client for the Melian server\n");
   fprintf(stderr, "Usage with TCP socket: %s [-UCHq] [-v] [-h host] -p port\n", progname);
   fprintf(stderr, "Usage with UNIX socket: %s [-UCHq] [-v] -u unix_path\n", progname);
   fprintf(stderr, "Options:\n");

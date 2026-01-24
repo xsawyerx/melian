@@ -133,7 +133,7 @@ The `-C` option in `melian-client` issues sequential lookups on `table2` by ID. 
    clients/perl/benchmark_table2_vs_redis.pl --rows 10000
    ```
 
-The benchmark script first validates that a few sample IDs return identical JSON from both stores before timing the full run.
+The benchmark script only times fetch latency; it does not compare payload contents.
 
 ## Technical Design
 
@@ -144,8 +144,8 @@ The benchmark script first validates that a few sample IDs return identical JSON
 * Cron thread: Separate thread periodically wakes up and reloads data from MySQL.
 * Zero-copy I/O: Requests and responses are read and written directly from libevent buffers and arena memory without memcpy.
 * Logging system: Color-coded logs with runtime log-level control.
-* Binary protocol: Compact, endian-safe, 8-byte request header -> 4-byte length prefix -> payload.
-* Melian automatically introspects all columns, serializes each row into JSON, and caches it as a preframed binary value.
+* Binary protocol: Compact, endian-safe, 8-byte request header -> 4-byte length prefix -> payload (binary row format with field name, type, and raw bytes).
+* Melian automatically introspects all columns, serializes each row into a compact binary row format, and caches it as a preframed value.
 
 ## Internals Summary
 
@@ -161,7 +161,7 @@ The benchmark script first validates that a few sample IDs return identical JSON
 ## Example Query Workflow
 
 1. Client sends:
-   `Header(version=0x11, action='U', length=4)` + key (e.g. `id=42`)
+   `Header(version=0x11, action='F', length=4)` + key (e.g. `id=42`)
 2. Server finds the entry in memory and returns:
-   `[4-byte length prefix] + {"id":42,"hostname":"host_42",...}`
-3. Client reads, prints, or benchmarks the response.
+   `[4-byte length prefix] + <binary row payload>`
+3. Client decodes or benchmarks the response.
