@@ -48,6 +48,9 @@ static void client_send_request(Client* client, uint8_t action, uint8_t table_id
 static json_t* client_describe_schema(Client* client);
 static void resolve_fetch_bindings(json_t* schema);
 static int resolve_fetch_binding(struct FetchBinding* binding, json_t* tables);
+static uint16_t read_le16(const uint8_t *buf);
+static uint32_t read_le32(const uint8_t *buf);
+static uint64_t read_le64(const uint8_t *buf);
 
 Client* client_build(void) {
   Client* client = calloc(1, sizeof(Client));
@@ -134,6 +137,109 @@ int client_read_response(Client* client) {
     // printf("Response: <empty>\n");
   }
   return client->rlen;
+}
+
+static uint16_t read_le16(const uint8_t *buf) {
+  return (uint16_t)(buf[0] | ((uint16_t)buf[1] << 8));
+}
+
+static uint32_t read_le32(const uint8_t *buf) {
+  return (uint32_t)(buf[0] | ((uint32_t)buf[1] << 8) | ((uint32_t)buf[2] << 16) | ((uint32_t)buf[3] << 24));
+}
+
+static uint64_t read_le64(const uint8_t *buf) {
+  uint64_t v = 0;
+  for (int i = 0; i < 8; ++i) {
+    v |= ((uint64_t)buf[i]) << (8 * i);
+  }
+  return v;
+}
+
+ClientRow* client_decode_row(const uint8_t* payload, unsigned length) {
+  if (!payload || length < 4) return NULL;
+  unsigned offset = 0;
+  uint32_t field_count = read_le32(payload);
+  offset += 4;
+
+  ClientRow* row = calloc(1, sizeof(ClientRow));
+  if (!row) return NULL;
+  row->field_count = field_count;
+  row->fields = calloc(field_count, sizeof(ClientField));
+  if (!row->fields) {
+    free(row);
+    return NULL;
+  }
+
+  for (uint32_t i = 0; i < field_count; ++i) {
+    if (offset + 2 > length) goto fail;
+    uint16_t name_len = read_le16(payload + offset);
+    offset += 2;
+    if (offset + name_len + 1 + 4 > length) goto fail;
+    row->fields[i].name = calloc(1, (size_t)name_len + 1);
+    if (!row->fields[i].name) goto fail;
+    memcpy(row->fields[i].name, payload + offset, name_len);
+    offset += name_len;
+    uint8_t type = payload[offset++];
+    uint32_t value_len = read_le32(payload + offset);
+    offset += 4;
+    if (offset + value_len > length) goto fail;
+
+    row->fields[i].type = type;
+    row->fields[i].len = value_len;
+
+    if (type == MELIAN_VALUE_NULL) {
+      offset += value_len;
+      continue;
+    }
+    if (type == MELIAN_VALUE_BOOL) {
+      row->fields[i].value.b = value_len ? payload[offset] : 0;
+      offset += value_len;
+      continue;
+    }
+    if (type == MELIAN_VALUE_INT64) {
+      if (value_len != 8) goto fail;
+      row->fields[i].value.i64 = (int64_t)read_le64(payload + offset);
+      offset += 8;
+      continue;
+    }
+    if (type == MELIAN_VALUE_FLOAT64) {
+      if (value_len != 8) goto fail;
+      uint64_t bits = read_le64(payload + offset);
+      memcpy(&row->fields[i].value.f64, &bits, sizeof(bits));
+      offset += 8;
+      continue;
+    }
+
+    if (value_len > 0) {
+      row->fields[i].value.bytes = malloc(value_len);
+      if (!row->fields[i].value.bytes) goto fail;
+      memcpy(row->fields[i].value.bytes, payload + offset, value_len);
+    }
+    offset += value_len;
+  }
+  return row;
+
+fail:
+  client_row_free(row);
+  return NULL;
+}
+
+void client_row_free(ClientRow* row) {
+  if (!row) return;
+  if (row->fields) {
+    for (uint32_t i = 0; i < row->field_count; ++i) {
+      free(row->fields[i].name);
+      if (row->fields[i].len > 0 &&
+          row->fields[i].type != MELIAN_VALUE_INT64 &&
+          row->fields[i].type != MELIAN_VALUE_FLOAT64 &&
+          row->fields[i].type != MELIAN_VALUE_BOOL &&
+          row->fields[i].type != MELIAN_VALUE_NULL) {
+        free(row->fields[i].value.bytes);
+      }
+    }
+    free(row->fields);
+  }
+  free(row);
 }
 
 static void create_socket(Client* client) {
