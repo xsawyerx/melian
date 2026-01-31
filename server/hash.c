@@ -1,9 +1,21 @@
 #include <stdlib.h>
 #include <string.h>
+#include "util.h"
 #include "log.h"
 #include "arena.h"
 #include "xxhash.h"
 #include "hash.h"
+
+// Fast 4-byte key comparison (most keys are integer IDs)
+static inline int key_equals(const uint8_t* a, const void* b, uint32_t len) {
+  if (len == 4) {
+    uint32_t x, y;
+    memcpy(&x, a, 4);
+    memcpy(&y, b, 4);
+    return x == y;
+  }
+  return memcmp(a, b, len) == 0;
+}
 
 #define USE_XXH3_32 1
 #define USE_XXH3_64 0
@@ -60,6 +72,7 @@ void hash_destroy(Hash* hash) {
 }
 
 // Insert preframed value
+// During load, stores indices cast to pointers. Call hash_finalize_pointers() after load.
 unsigned hash_insert(Hash *hash, const void *key, uint32_t key_len, unsigned frame, uint32_t frame_len) {
   uint64_t h = HASH_FUNC(key, key_len);
   uint8_t tag = (uint8_t)(h >> 56);
@@ -71,13 +84,13 @@ unsigned hash_insert(Hash *hash, const void *key, uint32_t key_len, unsigned fra
       unsigned kindex = arena_store(hash->arena, key, key_len);
       if (kindex == (unsigned)-1) return 0;
 
-      // Assume frame value was already stored in arena
+      // Store indices as pointers temporarily (finalized after load)
       hash->tab[idx].hash = h;
       hash->tab[idx].tag = tag;
       hash->tab[idx].key_len = key_len;
-      hash->tab[idx].key_idx = kindex;
+      hash->tab[idx].key_ptr = (uint8_t*)(uintptr_t)kindex;
       hash->tab[idx].frame_len = frame_len;
-      hash->tab[idx].frame_idx = frame;
+      hash->tab[idx].frame_ptr = (uint8_t*)(uintptr_t)frame;
       hash->used++;
       return 1;
     }
@@ -85,31 +98,48 @@ unsigned hash_insert(Hash *hash, const void *key, uint32_t key_len, unsigned fra
   }
 }
 
+// Convert stored indices to actual arena pointers
+void hash_finalize_pointers(Hash *hash) {
+  if (!hash || !hash->arena) return;
+  Arena* arena = hash->arena;
+  for (unsigned i = 0; i < hash->cap; ++i) {
+    Bucket* b = &hash->tab[i];
+    if (b->key_len == 0) continue;
+    unsigned key_idx = (unsigned)(uintptr_t)b->key_ptr;
+    unsigned frame_idx = (unsigned)(uintptr_t)b->frame_ptr;
+    b->key_ptr = arena_get_ptr(arena, key_idx);
+    b->frame_ptr = arena_get_ptr(arena, frame_idx);
+  }
+}
+
 // Lookup by key
-const Bucket* hash_get(Hash *hash, const void *key, uint32_t key_len) {
+HOT_FUNC const Bucket* hash_get(Hash *hash, const void *key, uint32_t key_len) {
   ++hash->stats.queries;
   uint64_t h = HASH_FUNC(key, key_len);
   uint8_t tag = (uint8_t)(h >> 56);
   LOG_DEBUG("Looking up %u bytes, [%.*s], hash %llu", key_len, key_len, key, h);
   uint64_t mask = hash->cap - 1;
   uint64_t idx = h & mask;
+
+  // Prefetch the bucket we're about to access
+  __builtin_prefetch(&hash->tab[idx], 0, 3);
+
   unsigned probes = 0;
   const Bucket *bucket = 0;
   while (1) {
     ++probes;
     LOG_DEBUG(">> PROBE");
     bucket = &hash->tab[idx];
-    if (bucket->key_len == 0) {
+    if (unlikely(bucket->key_len == 0)) {
       bucket = 0;
       break;
     }
-    if (bucket->tag == tag && bucket->hash == h && bucket->key_len == key_len) {
-      uint8_t* key_ptr = arena_get_ptr(hash->arena, bucket->key_idx);
-      if (memcmp(key_ptr, key, key_len) == 0) break;
+    if (likely(bucket->tag == tag && bucket->hash == h && bucket->key_len == key_len)) {
+      if (likely(key_equals(bucket->key_ptr, key, key_len))) break;
     }
     idx = (idx + 1) & mask;
   }
-  if (probes < MAX_PROBE_COUNT) {
+  if (likely(probes < MAX_PROBE_COUNT)) {
     ++hash->stats.probes[probes];
   } else {
     LOG_WARN("Discarding probe count %u -- higher than maximum: %u", probes, MAX_PROBE_COUNT);
