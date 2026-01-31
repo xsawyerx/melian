@@ -7,6 +7,17 @@ enum {
   MAX_STAMP_LEN = 128,
 };
 
+// Compiler hints for hot paths
+#ifdef __GNUC__
+#define HOT_FUNC __attribute__((hot))
+#define likely(x)   __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#else
+#define HOT_FUNC
+#define likely(x)   (x)
+#define unlikely(x) (x)
+#endif
+
 #define UNUSED(var) (void)var
 #define ALEN(array) (unsigned) (sizeof(array) / sizeof(array[0]))
 

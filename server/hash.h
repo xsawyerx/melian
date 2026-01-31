@@ -20,8 +20,8 @@ typedef struct Bucket {
   uint64_t hash;          // hash of the key for quick reject
   uint8_t  tag;           // top 8 bits of hash as a tiny fingerprint
   uint32_t key_len;       // length of key in bytes
-  unsigned key_idx;       // index into arena memory for key bytes
-  unsigned frame_idx;     // index into arena memory for preframed value
+  uint8_t* key_ptr;       // pointer to key bytes (or index cast during load)
+  uint8_t* frame_ptr;     // pointer to preframed value (or index cast during load)
   uint32_t frame_len;     // = 4 + value_len
 } Bucket;
 
@@ -37,3 +37,7 @@ Hash* hash_build(unsigned cap_pow2, struct Arena* arena);
 void hash_destroy(Hash* hash);
 unsigned hash_insert(Hash *hash, const void *key, uint32_t key_len, unsigned frame, uint32_t frame_len);
 const Bucket* hash_get(Hash *hash, const void *key, uint32_t key_len);
+
+// Convert stored indices to actual arena pointers after load is complete.
+// Must be called BEFORE making the hash visible to readers.
+void hash_finalize_pointers(Hash *hash);

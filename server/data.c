@@ -139,6 +139,11 @@ unsigned table_load_from_db(Table* table, struct DB* db, unsigned now, unsigned 
   }
   LOG_INFO("Loaded %u rows for table %s at slot %u", rows, table->name, pos);
 
+  // Finalize pointers BEFORE updating current_slot (ensures readers see valid data)
+  for (unsigned idx = 0; idx < table->index_count; ++idx) {
+    hash_finalize_pointers(slot->indexes[idx]);
+  }
+
   table->stats.last_loaded = now;
   table->stats.rows = rows;
   if (table->index_count && table->indexes[0].type == CONFIG_INDEX_TYPE_INT) {

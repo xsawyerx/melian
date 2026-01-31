@@ -63,7 +63,6 @@ unsigned cron_run(Cron* cron) {
 
     pthread_t thread;
     pthread_create(&thread, 0, loader_main, cron);
-    pthread_detach(thread);
     cron->thread = (void*) thread;
   } while (0);
   return 1;
