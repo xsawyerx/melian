@@ -1,4 +1,7 @@
-AC_INIT([melian], [0.1.0], [https://github.com/xsawyerx/melian/issues], [melian])
+AC_INIT([melian],
+        m4_esyscmd_s([grep 'MELIAN_SERVER_VERSION' protocol.h | sed 's/.*"\(.*\)".*/\1/']),
+        [https://github.com/xsawyerx/melian/issues],
+        [melian])
 AC_CONFIG_SRCDIR([server/melian-server.c])
 AC_CONFIG_AUX_DIR([build-aux])
 AM_INIT_AUTOMAKE([foreign subdir-objects])
