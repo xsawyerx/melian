@@ -66,6 +66,7 @@ Concurrency | Throughput (Melian > Redis) | Tail latency (p99)
 * Clients in [Node.js](https://github.com/xsawyerx/melian-nodejs), [Python](https://github.com/xsawyerx/melian-python), [C](https://github.com/xsawyerx/melian/tree/main/clients/c), [Perl](https://metacpan.org/pod/Melian), [PHP](https://github.com/xsawyerx/melian-php/), and [Raku](https://github.com/xsawyerx/melian-raku).
 * Runtime performance statistics: query table size, min/max ID, and memory usage.
 * Binary row payloads: length-prefixed field name/type/value encoding for fast decode and byte-accurate values.
+* Optional Linux `io_uring` backend (`MELIAN_IO_BACKEND=iouring`) for higher concurrency throughput.
 
 ## Binary Row Format
 
@@ -155,6 +156,12 @@ $ MELIAN_SOCKET_PATH=/tmp/melian.sock ./melian-server
 # Run listening on a TCP socket
 $ MELIAN_SOCKET_HOST=localhost MELIAN_SOCKET_PORT=9999 ./melian-server
 
+# Force io_uring backend on Linux builds that include liburing
+$ MELIAN_IO_BACKEND=iouring ./melian-server
+
+# Force libevent backend
+$ MELIAN_IO_BACKEND=libevent ./melian-server
+
 # Display server options
 $ ./melian-server --help
 
@@ -163,6 +170,14 @@ $ ./melian-server --version
 ```
 
 Set the database driver explicitly and adjust shared settings via config file or environment variables.
+
+### I/O backend selection
+
+`MELIAN_IO_BACKEND` controls the runtime I/O backend:
+
+* `auto` (default): choose `io_uring` when available, otherwise `libevent`
+* `libevent`: always use libevent
+* `iouring`: require io_uring (Linux + liburing build); logs and falls back if unavailable
 
 ### Configuration file
 

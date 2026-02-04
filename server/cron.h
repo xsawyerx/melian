@@ -16,3 +16,7 @@ Cron* cron_build(struct Server* server);
 void cron_destroy(Cron* cron);
 unsigned cron_run(Cron* cron);
 unsigned cron_stop(Cron* cron);
+
+// Poke the cron thread to wake up and reload data.
+// Used by io_uring backend's timer implementation.
+void cron_poke(Cron* cron);

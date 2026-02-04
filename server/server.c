@@ -22,7 +22,15 @@
 #include "db.h"
 #include "cron.h"
 #include "protocol.h"
+#include "server_io.h"
 #include "server.h"
+
+// io_uring backend functions (defined in server_uring.c)
+extern void* uring_backend_init(Server* server);
+extern void uring_backend_destroy(void* io_ctx);
+extern int uring_backend_listen(void* io_ctx, const char* path, const char* host, unsigned port);
+extern int uring_backend_run(void* io_ctx);
+extern int uring_backend_stop(void* io_ctx);
 
 enum {
   MELIAN_MAX_KEY_LEN = 256,   // max key length in bytes
@@ -99,18 +107,40 @@ Server* server_build(void) {
       LOG_WARN("Could not allocate a Server object");
       break;
     }
-    server->base = event_base_new();
-    if (!server->base) {
-      LOG_WARN("Could not allocate a Server event_base object");
-      ++bad;
-      break;
-    }
 
     server->config = config_build();
     if (!server->config) {
       ++bad;
       break;
     }
+
+    // Select I/O backend
+    server->io_backend = server->config->server.io_backend;
+    LOG_INFO("I/O backend selected: %s", io_backend_name(server->io_backend));
+
+    if (server->io_backend == IO_BACKEND_IOURING) {
+#ifdef HAVE_IOURING
+      server->io_ctx = uring_backend_init(server);
+      if (!server->io_ctx) {
+        LOG_WARN("Failed to initialize io_uring backend, falling back to libevent");
+        server->io_backend = IO_BACKEND_LIBEVENT;
+      }
+#else
+      LOG_WARN("io_uring backend requested but not available in this build, using libevent");
+      server->io_backend = IO_BACKEND_LIBEVENT;
+#endif
+    }
+
+    // Initialize libevent if using that backend (or as fallback)
+    if (server->io_backend == IO_BACKEND_LIBEVENT) {
+      server->base = event_base_new();
+      if (!server->base) {
+        LOG_WARN("Could not allocate a Server event_base object");
+        ++bad;
+        break;
+      }
+    }
+
     server->db = db_build(server->config);
     if (!server->db) {
       ++bad;
@@ -127,6 +157,7 @@ Server* server_build(void) {
       break;
     }
 
+    // status_build needs event_base for libevent info, pass NULL for io_uring
     server->status = status_build(server->base, server->db);
     if (!server->status) {
       ++bad;
@@ -134,8 +165,11 @@ Server* server_build(void) {
     }
     status_log(server->status);
 
-    server->sev = evsignal_new(server->base, SIGINT, on_signal, server);
-    event_add(server->sev, NULL);
+    // Signal handler only needed for libevent backend
+    if (server->io_backend == IO_BACKEND_LIBEVENT && server->base) {
+      server->sev = evsignal_new(server->base, SIGINT, on_signal, server);
+      event_add(server->sev, NULL);
+    }
   } while (0);
   if (bad) {
     server_destroy(server);
@@ -148,18 +182,27 @@ void server_destroy(Server* server) {
   if (!server) return;
   server_stop(server);
 
-  unsigned size = 0;
-  for (struct conn_state_t* p = server->conn_free; p; ) {
-    ++size;
-    struct conn_state_t* q = p;
-    p = p->next;
-    if (q->rev) event_free(q->rev);
-    if (q->wev) event_free(q->wev);
-    if (q->fd >= 0) close(q->fd);
-    free(q);
+  // Clean up io_uring backend if used
+  if (server->io_ctx) {
+    uring_backend_destroy(server->io_ctx);
+    server->io_ctx = NULL;
   }
-  if (size) {
-    LOG_INFO("Cleared conn free list with %u elements", size);
+
+  // Clean up libevent connection pool (only used with libevent backend)
+  if (server->io_backend == IO_BACKEND_LIBEVENT) {
+    unsigned size = 0;
+    for (struct conn_state_t* p = server->conn_free; p; ) {
+      ++size;
+      struct conn_state_t* q = p;
+      p = p->next;
+      if (q->rev) event_free(q->rev);
+      if (q->wev) event_free(q->wev);
+      if (q->fd >= 0) close(q->fd);
+      free(q);
+    }
+    if (size) {
+      LOG_INFO("Cleared conn free list with %u elements", size);
+    }
   }
 
   if (server->listener) evconnlistener_free(server->listener);
@@ -181,6 +224,19 @@ unsigned server_initial_load(Server* server) {
 
 unsigned server_listen(Server* server) {
   const char* path = server->config->socket.path;
+  const char* host = server->config->socket.host;
+  unsigned port = server->config->socket.port;
+
+  // Use io_uring backend if selected
+  if (server->io_backend == IO_BACKEND_IOURING && server->io_ctx) {
+    if (uring_backend_listen(server->io_ctx, path, host, port) == 0) {
+      return 1;
+    }
+    LOG_WARN("io_uring listen failed");
+    return 0;
+  }
+
+  // libevent backend
   if (path && path[0]) {
     unlink(path);
     struct sockaddr_un sun;
@@ -200,8 +256,6 @@ unsigned server_listen(Server* server) {
     return 1;
   }
 
-  const char* host = server->config->socket.host;
-  unsigned port = server->config->socket.port;
   if (host && host[0] && port) {
     struct sockaddr_in sin;
     memset(&sin, 0, sizeof(sin));
@@ -224,8 +278,14 @@ unsigned server_run(Server* server) {
     server->running = 1;
 
     cron_run(server->cron);
-    LOG_INFO("Running event loop");
-    event_base_dispatch(server->base);
+
+    if (server->io_backend == IO_BACKEND_IOURING && server->io_ctx) {
+      LOG_INFO("Running io_uring event loop");
+      uring_backend_run(server->io_ctx);
+    } else {
+      LOG_INFO("Running libevent event loop");
+      event_base_dispatch(server->base);
+    }
   } while (0);
   return 0;
 }
@@ -237,7 +297,12 @@ unsigned server_stop(Server* server) {
 
     cron_stop(server->cron);
     LOG_INFO("Stopping event loop");
-    event_base_loopexit(server->base, 0);
+
+    if (server->io_backend == IO_BACKEND_IOURING && server->io_ctx) {
+      uring_backend_stop(server->io_ctx);
+    } else if (server->base) {
+      event_base_loopexit(server->base, 0);
+    }
   } while (0);
   return 0;
 }

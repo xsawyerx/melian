@@ -115,14 +115,16 @@ melian_client_DEPENDENCIES = $(am__DEPENDENCIES_1) \
 am_melian_server_OBJECTS = server/util.$(OBJEXT) server/log.$(OBJEXT) \
 	server/arena.$(OBJEXT) server/xxhash.$(OBJEXT) \
 	server/hash.$(OBJEXT) server/server.$(OBJEXT) \
-	server/config.$(OBJEXT) server/status.$(OBJEXT) \
-	server/data.$(OBJEXT) server/db.$(OBJEXT) \
-	server/cron.$(OBJEXT) server/melian-server.$(OBJEXT)
+	server/server_uring.$(OBJEXT) server/config.$(OBJEXT) \
+	server/status.$(OBJEXT) server/data.$(OBJEXT) \
+	server/db.$(OBJEXT) server/cron.$(OBJEXT) \
+	server/melian-server.$(OBJEXT)
 melian_server_OBJECTS = $(am_melian_server_OBJECTS)
 melian_server_DEPENDENCIES = $(am__DEPENDENCIES_1) \
 	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
 	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
-	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1)
+	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1) \
+	$(am__DEPENDENCIES_1)
 AM_V_P = $(am__v_P_@AM_V@)
 am__v_P_ = $(am__v_P_@AM_DEFAULT_V@)
 am__v_P_0 = false
@@ -144,8 +146,8 @@ am__depfiles_remade = clients/c/$(DEPDIR)/client.Po \
 	server/$(DEPDIR)/data.Po server/$(DEPDIR)/db.Po \
 	server/$(DEPDIR)/hash.Po server/$(DEPDIR)/log.Po \
 	server/$(DEPDIR)/melian-server.Po server/$(DEPDIR)/server.Po \
-	server/$(DEPDIR)/status.Po server/$(DEPDIR)/util.Po \
-	server/$(DEPDIR)/xxhash.Po
+	server/$(DEPDIR)/server_uring.Po server/$(DEPDIR)/status.Po \
+	server/$(DEPDIR)/util.Po server/$(DEPDIR)/xxhash.Po
 am__mv = mv -f
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
@@ -240,6 +242,8 @@ INSTALL_DATA = @INSTALL_DATA@
 INSTALL_PROGRAM = @INSTALL_PROGRAM@
 INSTALL_SCRIPT = @INSTALL_SCRIPT@
 INSTALL_STRIP_PROGRAM = @INSTALL_STRIP_PROGRAM@
+IOURING_CFLAGS = @IOURING_CFLAGS@
+IOURING_LIBS = @IOURING_LIBS@
 JANSSON_LIBS = @JANSSON_LIBS@
 LDFLAGS = @LDFLAGS@
 LIBEVENT_LIBS = @LIBEVENT_LIBS@
@@ -333,6 +337,7 @@ AM_CPPFLAGS = \
 	$(MYSQL_CFLAGS) \
 	$(SQLITE_CFLAGS) \
 	$(POSTGRESQL_CFLAGS) \
+	$(IOURING_CFLAGS) \
 	$(PLATFORM_CPPFLAGS)
 
 AM_CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -g
@@ -343,6 +348,7 @@ melian_server_SOURCES = \
 	server/xxhash.c \
 	server/hash.c \
 	server/server.c \
+	server/server_uring.c \
 	server/config.c \
 	server/status.c \
 	server/data.c \
@@ -352,6 +358,7 @@ melian_server_SOURCES = \
 
 melian_server_LDADD = \
 	$(LIBEVENT_LIBS) \
+	$(IOURING_LIBS) \
 	$(MYSQL_LIBS) \
 	$(SQLITE_LIBS) \
 	$(POSTGRESQL_LIBS) \
@@ -377,6 +384,7 @@ EXTRA_DIST = \
 	server/xxhash.h \
 	server/hash.h \
 	server/config.h \
+	server/server_io.h \
 	server/server.h \
 	server/status.h \
 	server/data.h \
@@ -495,6 +503,8 @@ server/hash.$(OBJEXT): server/$(am__dirstamp) \
 	server/$(DEPDIR)/$(am__dirstamp)
 server/server.$(OBJEXT): server/$(am__dirstamp) \
 	server/$(DEPDIR)/$(am__dirstamp)
+server/server_uring.$(OBJEXT): server/$(am__dirstamp) \
+	server/$(DEPDIR)/$(am__dirstamp)
 server/config.$(OBJEXT): server/$(am__dirstamp) \
 	server/$(DEPDIR)/$(am__dirstamp)
 server/status.$(OBJEXT): server/$(am__dirstamp) \
@@ -531,6 +541,7 @@ distclean-compile:
 @AMDEP_TRUE@@am__include@ @am__quote@server/$(DEPDIR)/log.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@server/$(DEPDIR)/melian-server.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@server/$(DEPDIR)/server.Po@am__quote@ # am--include-marker
+@AMDEP_TRUE@@am__include@ @am__quote@server/$(DEPDIR)/server_uring.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@server/$(DEPDIR)/status.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@server/$(DEPDIR)/util.Po@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@server/$(DEPDIR)/xxhash.Po@am__quote@ # am--include-marker
@@ -845,6 +856,7 @@ distclean: distclean-am
 	-rm -f server/$(DEPDIR)/log.Po
 	-rm -f server/$(DEPDIR)/melian-server.Po
 	-rm -f server/$(DEPDIR)/server.Po
+	-rm -f server/$(DEPDIR)/server_uring.Po
 	-rm -f server/$(DEPDIR)/status.Po
 	-rm -f server/$(DEPDIR)/util.Po
 	-rm -f server/$(DEPDIR)/xxhash.Po
@@ -906,6 +918,7 @@ maintainer-clean: maintainer-clean-am
 	-rm -f server/$(DEPDIR)/log.Po
 	-rm -f server/$(DEPDIR)/melian-server.Po
 	-rm -f server/$(DEPDIR)/server.Po
+	-rm -f server/$(DEPDIR)/server_uring.Po
 	-rm -f server/$(DEPDIR)/status.Po
 	-rm -f server/$(DEPDIR)/util.Po
 	-rm -f server/$(DEPDIR)/xxhash.Po

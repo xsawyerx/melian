@@ -58,6 +58,7 @@ cd melbench && make
 
 1. Build melbench: `cd melbench && make`
 2. Start targets on distinct sockets/ports (e.g., `melian-old`, `melian-new`, `redis`).
+   - For Melian backend comparisons, set `MELIAN_IO_BACKEND=libevent` or `MELIAN_IO_BACKEND=iouring`.
 3. Choose key/table/column for Melian; Redis uses `GET` with the same key when comparing.
 4. Run melbench with:
    - `--target` entries for each binary you want to compare.

@@ -167,9 +167,9 @@ The benchmark script only times fetch latency; it does not compare payload conte
 * Arena allocator: Pre-allocated, contiguous memory buffer. Each dataset swap allocates a new arena; old one is destroyed atomically after the swap.
 * Hash table: Open addressing with linear probing using XXH32 (xxHash). Collisions are extremely rare.
 * Double buffering: Two slots per table: one live, one loading. A swap pointer makes replacement atomic.
-* Event loop: Uses `libevent2` for async I/O and signal handling.
-* Cron thread: Separate thread periodically wakes up and reloads data from MySQL.
-* Zero-copy I/O: Requests and responses are read and written directly from libevent buffers and arena memory without memcpy.
+* Event loop: Uses `libevent2` by default, with optional Linux `io_uring` backend (`MELIAN_IO_BACKEND=iouring`).
+* Cron thread: Separate thread periodically wakes up and reloads data from SQL backends.
+* Zero-copy I/O: Responses can be written directly from arena memory (preframed payload path).
 * Logging system: Color-coded logs with runtime log-level control.
 * Binary protocol: Compact, endian-safe, 8-byte request header -> 4-byte length prefix -> payload (binary row format with field name, type, and raw bytes).
 * Melian automatically introspects all columns, serializes each row into a compact binary row format, and caches it as a preframed value.

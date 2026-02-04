@@ -2,14 +2,23 @@
 
 // A Server embodies the Melian server.
 
+#include "server_io.h"
+
 struct conn_state_t;
 
 // A running server.
 typedef struct Server {
+  // I/O backend selection
+  IoBackend io_backend;
+  void* io_ctx;                  // Backend-specific context (uring_ctx_t* for io_uring)
+
+  // libevent backend (used when io_backend == IO_BACKEND_LIBEVENT)
   struct event_base *base;
   struct evconnlistener *listener;
   struct event *tev;
   struct event *sev;
+
+  // Common components
   struct Config* config;
   struct Status* status;
   struct Data* data;

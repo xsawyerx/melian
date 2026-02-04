@@ -9,14 +9,17 @@
 #include "server.h"
 
 static void show_usage(const char* prog) {
-  printf("%s -- a cache for MySQL tables\n", prog);
+  printf("%s -- an in-memory cache server for SQL tables\n", prog);
   printf("\n");
-  printf("The program reads full tables from MySQL, stores them in memory,\n");
-  printf("and serves the data over a UNIX socket based on a key value.\n");
+  printf("The program reads full tables from MySQL/PostgreSQL/SQLite, stores them in memory,\n");
+  printf("and serves binary row payloads over UNIX/TCP sockets based on key lookups.\n");
   printf("\nOptions:\n");
   printf("  -c, --configfile <path>  Use the specified JSON config file instead of autodetecting.\n");
   printf("  -h, --help               Show this help message.\n");
   printf("      --version            Show version and exit.\n");
+  printf("\nI/O backend selection:\n");
+  printf("  Set MELIAN_IO_BACKEND to one of: auto, libevent, iouring.\n");
+  printf("  'iouring' is available only on Linux builds with liburing support.\n");
   printf("\nPriority order for config files:\n");
   printf("  1. Command line -c/--configfile\n");
   printf("  2. Environment variable MELIAN_CONFIG_FILE\n");
