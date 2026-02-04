@@ -44,3 +44,19 @@ melian_client_SOURCES = \
 melian_client_LDADD = \
 	$(JANSSON_LIBS) \
 	$(LIBM)
+
+# Header files to include in distribution
+EXTRA_DIST = \
+	protocol.h \
+	server/util.h \
+	server/log.h \
+	server/arena.h \
+	server/xxhash.h \
+	server/hash.h \
+	server/config.h \
+	server/server.h \
+	server/status.h \
+	server/data.h \
+	server/db.h \
+	server/cron.h \
+	clients/c/client.h
