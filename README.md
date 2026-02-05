@@ -290,14 +290,60 @@ $ ./melian-client -?
 $ ./melian-client -h
 ```
 
-### Options
+### Subcommands
 
-* `-U`: Query table1 by ID
-* `-C`: Query table2 by ID
-* `-H`: Query table2 by hostname
-* `-s`: Request server statistics
+* `fetch`: Fetch a single row (see [Ad-hoc querying](#ad-hoc-querying))
+* `schema`: Show the server schema as JSON
+* `stats`: Show server statistics as JSON
+
+### Benchmark options
+
+When no subcommand is given, the client runs in benchmark mode:
+
+* `-U`: Benchmark table1 by ID
+* `-C`: Benchmark table2 by ID
+* `-H`: Benchmark table2 by hostname
+* `-s`: Print server statistics
 * `-q`: Quit the server
 * `-v`: Verbose logging
+
+### Ad-hoc querying
+
+Melian uses a binary protocol, so `curl` won't work. The C client supports subcommands for quick, ad-hoc queries against a running server.
+
+All examples below assume a UNIX socket at `/tmp/melian.sock`. For TCP, replace `-u /tmp/melian.sock` with `-p PORT` (and optionally `-h HOST`).
+
+**Describe schema** (discover tables and indexes):
+
+```bash
+./melian-client -u /tmp/melian.sock schema
+```
+
+**Fetch a row by integer key** (table `table1`, index `id`, key `42`):
+
+```bash
+./melian-client -u /tmp/melian.sock fetch --table table1 --index id --key 42
+```
+
+**Fetch a row by string key** (table `table2`, index `hostname`, key `host-00002`):
+
+```bash
+./melian-client -u /tmp/melian.sock fetch --table table2 --index hostname --key host-00002
+```
+
+**Mix names and IDs freely** (table by ID, index by name):
+
+```bash
+./melian-client -u /tmp/melian.sock fetch --table-id 1 --index hostname --key host-00002
+```
+
+**Server statistics:**
+
+```bash
+./melian-client -u /tmp/melian.sock stats
+```
+
+The key type (integer or string) is detected automatically from the schema - no need to specify it. Output is JSON, suitable for piping through `jq`.
 
 ## Docker images
 

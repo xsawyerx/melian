@@ -8,6 +8,21 @@ enum {
   MAX_RESPONSE_LEN = 10240,
 };
 
+enum ClientMode {
+  CLIENT_MODE_BENCH,
+  CLIENT_MODE_FETCH,
+  CLIENT_MODE_SCHEMA,
+  CLIENT_MODE_STATS,
+};
+
+struct FetchOptions {
+  const char *table_name;
+  int table_id;
+  const char *index_name;
+  int index_id;
+  const char *key;
+};
+
 // Options available when running a client.
 struct Options {
   const char *host;
@@ -17,6 +32,8 @@ struct Options {
   unsigned stats;
   unsigned quit;
   unsigned verbose;
+  enum ClientMode mode;
+  struct FetchOptions fetch;
 };
 
 struct TableData {

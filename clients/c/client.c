@@ -51,12 +51,21 @@ static int resolve_fetch_binding(struct FetchBinding* binding, json_t* tables);
 static uint16_t read_le16(const uint8_t *buf);
 static uint32_t read_le32(const uint8_t *buf);
 static uint64_t read_le64(const uint8_t *buf);
+static unsigned parse_fetch_args(Client* client, int argc, char* argv[], int start);
+static int resolve_adhoc_fetch(Client* client, json_t* schema, unsigned* out_table_id, unsigned* out_index_id, const char** out_index_type);
+static void print_row_json(ClientRow* row);
+static void client_run_adhoc_fetch(Client* client);
+static void client_run_schema(Client* client);
+static void client_run_adhoc_stats(Client* client);
+static void client_run_bench(Client* client);
 
 Client* client_build(void) {
   Client* client = calloc(1, sizeof(Client));
 
   client->options.host = MELIAN_DEFAULT_DB_HOST;
   client->options.unix = MELIAN_DEFAULT_SOCKET_PATH;
+  client->options.fetch.table_id = -1;
+  client->options.fetch.index_id = -1;
 
   return client;
 }
@@ -100,6 +109,23 @@ unsigned client_configure(Client* client, int argc, char* argv[]) {
         return 0;
     }
   }
+
+  if (optind < argc) {
+    const char* subcmd = argv[optind];
+    if (strcmp(subcmd, "fetch") == 0) {
+      client->options.mode = CLIENT_MODE_FETCH;
+      return parse_fetch_args(client, argc, argv, optind + 1);
+    } else if (strcmp(subcmd, "schema") == 0) {
+      client->options.mode = CLIENT_MODE_SCHEMA;
+      return 1;
+    } else if (strcmp(subcmd, "stats") == 0) {
+      client->options.mode = CLIENT_MODE_STATS;
+      return 1;
+    }
+    fprintf(stderr, "Unknown subcommand: %s\n", subcmd);
+    return 0;
+  }
+
   return 1;
 }
 
@@ -448,10 +474,226 @@ static void client_get_table_data(Client* client) {
   }
 }
 
-void client_run(Client* client) {
-  create_socket(client);
-  if (client->fd < 0) terminate("create_socket", 0);
+static unsigned parse_fetch_args(Client* client, int argc, char* argv[], int start) {
+  for (int i = start; i < argc; i++) {
+    if (strcmp(argv[i], "--table") == 0 && i + 1 < argc) {
+      client->options.fetch.table_name = argv[++i];
+    } else if (strcmp(argv[i], "--table-id") == 0 && i + 1 < argc) {
+      client->options.fetch.table_id = atoi(argv[++i]);
+    } else if (strcmp(argv[i], "--index") == 0 && i + 1 < argc) {
+      client->options.fetch.index_name = argv[++i];
+    } else if (strcmp(argv[i], "--index-id") == 0 && i + 1 < argc) {
+      client->options.fetch.index_id = atoi(argv[++i]);
+    } else if (strcmp(argv[i], "--key") == 0 && i + 1 < argc) {
+      client->options.fetch.key = argv[++i];
+    } else {
+      fprintf(stderr, "Unknown fetch option: %s\n", argv[i]);
+      return 0;
+    }
+  }
 
+  if (!client->options.fetch.table_name && client->options.fetch.table_id < 0) {
+    fprintf(stderr, "fetch: --table or --table-id is required\n");
+    return 0;
+  }
+  if (client->options.fetch.table_name && client->options.fetch.table_id >= 0) {
+    fprintf(stderr, "fetch: --table and --table-id are mutually exclusive\n");
+    return 0;
+  }
+  if (!client->options.fetch.index_name && client->options.fetch.index_id < 0) {
+    fprintf(stderr, "fetch: --index or --index-id is required\n");
+    return 0;
+  }
+  if (client->options.fetch.index_name && client->options.fetch.index_id >= 0) {
+    fprintf(stderr, "fetch: --index and --index-id are mutually exclusive\n");
+    return 0;
+  }
+  if (!client->options.fetch.key) {
+    fprintf(stderr, "fetch: --key is required\n");
+    return 0;
+  }
+  return 1;
+}
+
+static int resolve_adhoc_fetch(Client* client, json_t* schema,
+                               unsigned* out_table_id, unsigned* out_index_id,
+                               const char** out_index_type) {
+  struct FetchOptions* fo = &client->options.fetch;
+  json_t* tables = json_object_get(schema, "tables");
+  if (!json_is_array(tables)) {
+    fprintf(stderr, "Schema missing 'tables' array\n");
+    return 0;
+  }
+
+  json_t* table = NULL;
+  size_t idx;
+  json_t* val;
+  json_array_foreach(tables, idx, val) {
+    if (fo->table_name) {
+      const char* name = json_string_value(json_object_get(val, "name"));
+      if (name && strcmp(name, fo->table_name) == 0) { table = val; break; }
+    } else {
+      json_t* tid = json_object_get(val, "id");
+      if (json_is_integer(tid) && json_integer_value(tid) == fo->table_id) { table = val; break; }
+    }
+  }
+  if (!table) {
+    if (fo->table_name)
+      fprintf(stderr, "Table '%s' not found in schema\n", fo->table_name);
+    else
+      fprintf(stderr, "Table ID %d not found in schema\n", fo->table_id);
+    return 0;
+  }
+  *out_table_id = (unsigned)json_integer_value(json_object_get(table, "id"));
+
+  json_t* indexes = json_object_get(table, "indexes");
+  if (!json_is_array(indexes)) {
+    fprintf(stderr, "Table has no indexes\n");
+    return 0;
+  }
+
+  json_t* index = NULL;
+  json_array_foreach(indexes, idx, val) {
+    if (fo->index_name) {
+      const char* col = json_string_value(json_object_get(val, "column"));
+      if (col && strcmp(col, fo->index_name) == 0) { index = val; break; }
+    } else {
+      json_t* iid = json_object_get(val, "id");
+      if (json_is_integer(iid) && json_integer_value(iid) == fo->index_id) { index = val; break; }
+    }
+  }
+  if (!index) {
+    if (fo->index_name)
+      fprintf(stderr, "Index '%s' not found in table\n", fo->index_name);
+    else
+      fprintf(stderr, "Index ID %d not found in table\n", fo->index_id);
+    return 0;
+  }
+  *out_index_id = (unsigned)json_integer_value(json_object_get(index, "id"));
+  *out_index_type = json_string_value(json_object_get(index, "type"));
+  return 1;
+}
+
+static void print_row_json(ClientRow* row) {
+  json_t* obj = json_object();
+  for (uint32_t i = 0; i < row->field_count; i++) {
+    ClientField* f = &row->fields[i];
+    switch (f->type) {
+      case MELIAN_VALUE_NULL:
+        json_object_set_new(obj, f->name, json_null());
+        break;
+      case MELIAN_VALUE_INT64:
+        json_object_set_new(obj, f->name, json_integer(f->value.i64));
+        break;
+      case MELIAN_VALUE_FLOAT64:
+        json_object_set_new(obj, f->name, json_real(f->value.f64));
+        break;
+      case MELIAN_VALUE_BYTES:
+      case MELIAN_VALUE_DECIMAL: {
+        char* str = calloc(1, f->len + 1);
+        memcpy(str, f->value.bytes, f->len);
+        json_object_set_new(obj, f->name, json_string(str));
+        free(str);
+        break;
+      }
+      case MELIAN_VALUE_BOOL:
+        json_object_set_new(obj, f->name, f->value.b ? json_true() : json_false());
+        break;
+    }
+  }
+  char* s = json_dumps(obj, JSON_INDENT(2) | JSON_PRESERVE_ORDER);
+  printf("%s\n", s);
+  free(s);
+  json_decref(obj);
+}
+
+static void client_run_adhoc_fetch(Client* client) {
+  json_t* schema = client_describe_schema(client);
+  if (!schema) terminate("describe schema", 0);
+
+  unsigned table_id, index_id;
+  const char* index_type;
+  if (!resolve_adhoc_fetch(client, schema, &table_id, &index_id, &index_type)) {
+    json_decref(schema);
+    exit(1);
+  }
+
+  if (client->options.verbose) {
+    fprintf(stderr, "Resolved: table_id=%u, index_id=%u, type=%s\n",
+            table_id, index_id, index_type);
+  }
+
+  int is_int_key = strcmp(index_type, "int") == 0;
+  json_decref(schema);
+
+  const char* key = client->options.fetch.key;
+  if (is_int_key) {
+    char* endptr;
+    long val = strtol(key, &endptr, 10);
+    if (*endptr != '\0') {
+      fprintf(stderr, "Key '%s' is not a valid integer for index type 'int'\n", key);
+      exit(1);
+    }
+    unsigned ikey = (unsigned)val;
+    if (client->options.verbose) {
+      fprintf(stderr, "Fetching: table_id=%u index_id=%u key=%u (int, %zu bytes)\n",
+              table_id, index_id, ikey, sizeof(unsigned));
+    }
+    client_send_request(client, MELIAN_ACTION_FETCH, table_id, index_id,
+                        (uint8_t*)&ikey, sizeof(unsigned));
+  } else {
+    if (client->options.verbose) {
+      fprintf(stderr, "Fetching: table_id=%u index_id=%u key=\"%s\" (string, %zu bytes)\n",
+              table_id, index_id, key, strlen(key));
+    }
+    client_send_request(client, MELIAN_ACTION_FETCH, table_id, index_id,
+                        (uint8_t*)key, strlen(key));
+  }
+
+  int bytes = client_read_response(client);
+  if (bytes <= 0) {
+    fprintf(stderr, "No row found (table_id=%u, index_id=%u, key=%s, type=%s)\n",
+            table_id, index_id, key, is_int_key ? "int" : "string");
+    return;
+  }
+
+  ClientRow* row = client_decode_row((uint8_t*)client->rbuf, client->rlen);
+  if (!row) {
+    fprintf(stderr, "Failed to decode response (%u bytes)\n", client->rlen);
+    exit(1);
+  }
+  print_row_json(row);
+  client_row_free(row);
+}
+
+static void client_run_schema(Client* client) {
+  json_t* schema = client_describe_schema(client);
+  if (!schema) terminate("describe schema", 0);
+  char* s = json_dumps(schema, JSON_INDENT(2) | JSON_PRESERVE_ORDER);
+  printf("%s\n", s);
+  free(s);
+  json_decref(schema);
+}
+
+static void client_run_adhoc_stats(Client* client) {
+  client_send_request(client, MELIAN_ACTION_GET_STATISTICS, 0, 0, NULL, 0);
+  if (client_read_response(client) <= 0) {
+    fprintf(stderr, "Failed to read statistics\n");
+    return;
+  }
+  json_error_t error;
+  json_t* stats = json_loadb(client->rbuf, client->rlen, JSON_DECODE_ANY, &error);
+  if (!stats) {
+    fprintf(stderr, "Failed to parse statistics: %s\n", error.text);
+    return;
+  }
+  char* s = json_dumps(stats, JSON_INDENT(2) | JSON_PRESERVE_ORDER);
+  printf("%s\n", s);
+  free(s);
+  json_decref(stats);
+}
+
+static void client_run_bench(Client* client) {
   json_t* schema = client_describe_schema(client);
   if (!schema) terminate("describe schema", 0);
   resolve_fetch_bindings(schema);
@@ -467,6 +709,27 @@ void client_run(Client* client) {
 
   if (client->options.quit) {
     client_send_action(client, MELIAN_ACTION_QUIT);
+  }
+}
+
+void client_run(Client* client) {
+  create_socket(client);
+  if (client->fd < 0) terminate("create_socket", 0);
+
+  switch (client->options.mode) {
+    case CLIENT_MODE_FETCH:
+      client_run_adhoc_fetch(client);
+      break;
+    case CLIENT_MODE_SCHEMA:
+      client_run_schema(client);
+      break;
+    case CLIENT_MODE_STATS:
+      client_run_adhoc_stats(client);
+      break;
+    case CLIENT_MODE_BENCH:
+    default:
+      client_run_bench(client);
+      break;
   }
 
   close(client->fd);
