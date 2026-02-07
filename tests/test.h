@@ -81,7 +81,9 @@ static int _test_fail_count;
   } while (0)
 
 #define ASSERT_MEM_EQ(a, b, len) do { \
-    if (memcmp((a), (b), (len)) != 0) { \
+    const void* _ma = (a); \
+    const void* _mb = (b); \
+    if (!_ma || !_mb || memcmp(_ma, _mb, (len)) != 0) { \
       char _buf[256]; \
       snprintf(_buf, sizeof(_buf), "memory mismatch (%u bytes): %s vs %s", \
                (unsigned)(len), #a, #b); \
