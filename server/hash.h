@@ -16,13 +16,13 @@ struct HashStats {
 };
 
 // Preframed value: [4-byte BE length][binary value]
+// 32 bytes = exactly 2 buckets per 64-byte cache line
 typedef struct Bucket {
   uint64_t hash;          // hash of the key for quick reject
-  uint8_t  tag;           // top 8 bits of hash as a tiny fingerprint
   uint32_t key_len;       // length of key in bytes
+  uint32_t frame_len;     // = 4 + value_len
   uint8_t* key_ptr;       // pointer to key bytes (or index cast during load)
   uint8_t* frame_ptr;     // pointer to preframed value (or index cast during load)
-  uint32_t frame_len;     // = 4 + value_len
 } Bucket;
 
 typedef struct Hash {

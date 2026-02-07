@@ -75,7 +75,6 @@ void hash_destroy(Hash* hash) {
 // During load, stores indices cast to pointers. Call hash_finalize_pointers() after load.
 unsigned hash_insert(Hash *hash, const void *key, uint32_t key_len, unsigned frame, uint32_t frame_len) {
   uint64_t h = HASH_FUNC(key, key_len);
-  uint8_t tag = (uint8_t)(h >> 56);
   uint64_t mask = hash->cap - 1;
   uint64_t idx = h & mask;
   while (1) {
@@ -86,7 +85,6 @@ unsigned hash_insert(Hash *hash, const void *key, uint32_t key_len, unsigned fra
 
       // Store indices as pointers temporarily (finalized after load)
       hash->tab[idx].hash = h;
-      hash->tab[idx].tag = tag;
       hash->tab[idx].key_len = key_len;
       hash->tab[idx].key_ptr = (uint8_t*)(uintptr_t)kindex;
       hash->tab[idx].frame_len = frame_len;
@@ -116,7 +114,6 @@ void hash_finalize_pointers(Hash *hash) {
 HOT_FUNC const Bucket* hash_get(Hash *hash, const void *key, uint32_t key_len) {
   ++hash->stats.queries;
   uint64_t h = HASH_FUNC(key, key_len);
-  uint8_t tag = (uint8_t)(h >> 56);
   LOG_DEBUG("Looking up %u bytes, [%.*s], hash %llu", key_len, key_len, key, h);
   uint64_t mask = hash->cap - 1;
   uint64_t idx = h & mask;
@@ -134,7 +131,7 @@ HOT_FUNC const Bucket* hash_get(Hash *hash, const void *key, uint32_t key_len) {
       bucket = 0;
       break;
     }
-    if (likely(bucket->tag == tag && bucket->hash == h && bucket->key_len == key_len)) {
+    if (likely(bucket->hash == h && bucket->key_len == key_len)) {
       if (likely(key_equals(bucket->key_ptr, key, key_len))) break;
     }
     idx = (idx + 1) & mask;
