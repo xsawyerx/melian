@@ -57,9 +57,13 @@ unsigned cron_run(Cron* cron) {
     // evutil_make_socket_nonblocking(cron->pair[0]);
     // evutil_make_socket_nonblocking(cron->pair[1]);
 
-    struct timeval wait = { CRON_TICK_PERIOD, 0 };
-    cron->tick = event_new(cron->server->base, -1, EV_PERSIST, on_tick, cron);
-    event_add(cron->tick, &wait);
+    // Only set up libevent timer if using libevent backend.
+    // io_uring backend has its own timer via timerfd.
+    if (cron->server->base) {
+      struct timeval wait = { CRON_TICK_PERIOD, 0 };
+      cron->tick = event_new(cron->server->base, -1, EV_PERSIST, on_tick, cron);
+      event_add(cron->tick, &wait);
+    }
 
     pthread_t thread;
     pthread_create(&thread, 0, loader_main, cron);
@@ -96,6 +100,12 @@ static void poke_thread(Cron* cron, uint8_t message) {
   } else if (wrote != 1) {
     LOG_ERROR("Failed to deliver cron message, wrote %zd bytes", wrote);
   }
+}
+
+// Public interface for io_uring backend to trigger cron reload
+void cron_poke(Cron* cron) {
+  if (!cron || !cron->running) return;
+  poke_thread(cron, THREAD_MESSAGE_WAKEUP);
 }
 
 static void on_tick(evutil_socket_t fd, short what, void *arg) {

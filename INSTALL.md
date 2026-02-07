@@ -8,6 +8,7 @@ This is a guide for installing Melian.
 
 * GCC / Clang (C99 or newer)
 * `libevent` ≥ 2.1
+* `liburing` (optional, Linux only, for `io_uring` backend)
 * `libmysqlclient` (optional, for MySQL/MariaDB support)
 * `libpq` (optional, for PostgreSQL support)
 * `libjansson` (for client JSON parsing)
@@ -32,6 +33,9 @@ make
 # Optionally install into PREFIX (defaults to /usr/local)
 make install
 ```
+
+On Linux, `configure` will auto-detect `liburing` when present and build the optional
+`io_uring` backend. At runtime, select backend with `MELIAN_IO_BACKEND=auto|libevent|iouring`.
 
 If you're using Homebrew, considering adding the following to your shell rc file:
 

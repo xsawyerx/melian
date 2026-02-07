@@ -105,6 +105,64 @@ AC_CHECK_LIB([event], [event_base_new],
 LDFLAGS="$save_LDFLAGS"
 AC_SUBST([LIBEVENT_LIBS])
 
+# Optional io_uring support (Linux only)
+AC_ARG_WITH([iouring],
+  [AS_HELP_STRING([--with-iouring=PREFIX],
+    [Prefix where liburing headers and libraries can be found (auto-detect by default)])],
+  [],
+  [with_iouring=auto])
+
+have_iouring=no
+IOURING_CFLAGS=""
+IOURING_LIBS=""
+
+case $host_os in
+  linux*)
+    if test "x$with_iouring" != "xno"; then
+      case $with_iouring in
+        auto|yes)
+          IOURING_CPPFLAGS_CAND=""
+          IOURING_LDFLAGS_CAND=""
+          ;;
+        *)
+          IOURING_CPPFLAGS_CAND="-I$with_iouring/include"
+          IOURING_LDFLAGS_CAND="-L$with_iouring/lib"
+          ;;
+      esac
+
+      save_CPPFLAGS="$CPPFLAGS"
+      CPPFLAGS="$IOURING_CPPFLAGS_CAND $CPPFLAGS"
+      AC_CHECK_HEADER([liburing.h],
+        [have_iouring=yes],
+        [have_iouring=no])
+      CPPFLAGS="$save_CPPFLAGS"
+
+      if test "x$have_iouring" = "xyes"; then
+        save_LDFLAGS="$LDFLAGS"
+        LDFLAGS="$IOURING_LDFLAGS_CAND $LDFLAGS"
+        AC_CHECK_LIB([uring], [io_uring_queue_init],
+          [IOURING_LIBS="$IOURING_LDFLAGS_CAND -luring"],
+          [have_iouring=no])
+        LDFLAGS="$save_LDFLAGS"
+      fi
+
+      if test "x$have_iouring" = "xyes"; then
+        IOURING_CFLAGS="$IOURING_CPPFLAGS_CAND"
+        AC_DEFINE([HAVE_IOURING], [1], [Define if liburing/io_uring support is available])
+      elif test "x$with_iouring" = "xyes"; then
+        AC_MSG_ERROR([io_uring support requested but liburing.h or liburing not found])
+      fi
+    fi
+    ;;
+  *)
+    if test "x$with_iouring" = "xyes"; then
+      AC_MSG_ERROR([io_uring is only available on Linux])
+    fi
+    ;;
+esac
+AC_SUBST([IOURING_CFLAGS])
+AC_SUBST([IOURING_LIBS])
+
 # Optional SQLite support (prepare to link when available)
 AC_ARG_WITH([sqlite3],
   [AS_HELP_STRING([--with-sqlite3=PREFIX],
@@ -210,6 +268,11 @@ AC_MSG_NOTICE([  MySQL : $have_mysql])
 AC_MSG_NOTICE([  SQLite: $have_sqlite3])
 AC_MSG_NOTICE([  PostgreSQL: $have_postgresql])
 AC_MSG_NOTICE([  Runtime selection: set MELIAN_DB_DRIVER to mysql, sqlite, or postgresql])
+AC_MSG_NOTICE([])
+AC_MSG_NOTICE([I/O backend configuration:])
+AC_MSG_NOTICE([  libevent: yes (required)])
+AC_MSG_NOTICE([  io_uring: $have_iouring])
+AC_MSG_NOTICE([  Runtime selection: set MELIAN_IO_BACKEND to auto, libevent, or iouring])
 AC_MSG_NOTICE([])
 
 # libjansson is mandatory for the client

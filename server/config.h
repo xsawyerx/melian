@@ -4,6 +4,7 @@
 // The default values can be modified by using environment variables.
 
 #include <stddef.h>
+#include "server_io.h"
 
 #define MELIAN_DEFAULT_CONFIG_FILE "/etc/melian.json"
 
@@ -65,6 +66,7 @@ typedef struct ConfigTable {
 typedef struct ConfigServer {
   unsigned show_msgs;
   unsigned tokens;
+  IoBackend io_backend;
 } ConfigServer;
 
 typedef struct ConfigFileData {

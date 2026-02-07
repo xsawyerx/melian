@@ -49,7 +49,11 @@ Status* status_build(struct event_base *base, DB* db) {
     strcpy(status->server.release, uts.release);
 
     strcpy(status->libevent.version, event_get_version());
-    strcpy(status->libevent.method, event_base_get_method(base));
+    if (base) {
+      strcpy(status->libevent.method, event_base_get_method(base));
+    } else {
+      strcpy(status->libevent.method, "io_uring");
+    }
   } while (0);
 
   return status;

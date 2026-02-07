@@ -9,6 +9,7 @@
 #include "util.h"
 #include "log.h"
 #include "protocol.h"
+#include "server_io.h"
 #include "config.h"
 
 static const char* get_config_string(const char* name, const char* def);
@@ -118,6 +119,16 @@ Config* config_build(void) {
     apply_select_overrides(config);
 
     config->server.tokens = get_config_bool("MELIAN_SERVER_TOKENS", MELIAN_DEFAULT_SERVER_TOKENS);
+
+    // I/O backend selection
+    const char* io_backend_raw = get_config_string("MELIAN_IO_BACKEND", "auto");
+    config->server.io_backend = io_backend_parse(io_backend_raw);
+#ifndef HAVE_IOURING
+    if (config->server.io_backend == IO_BACKEND_IOURING) {
+      LOG_WARN("io_uring backend requested but not available in this build, using libevent");
+      config->server.io_backend = IO_BACKEND_LIBEVENT;
+    }
+#endif
   } while (0);
 
   return config;
@@ -138,6 +149,7 @@ void config_show_usage(void) {
 	printf("  MELIAN_SOCKET_PORT     : port where server will listen for TCP connections -- 0 to disable (default: %s)\n", MELIAN_DEFAULT_SOCKET_PORT);
 	printf("  MELIAN_SOCKET_PATH     : name of UNIX socket file to create -- empty to disable (default: %s)\n", MELIAN_DEFAULT_SOCKET_PATH);
 	printf("  MELIAN_SERVER_TOKENS   : whether to advertise server version in status (default: %s)\n", MELIAN_DEFAULT_SERVER_TOKENS);
+	printf("  MELIAN_IO_BACKEND      : I/O backend to use (auto, libevent, iouring) (default: auto)\n");
 	printf("  MELIAN_TABLE_PERIOD    : how often (seconds) to refresh the data by default (default: %s)\n", MELIAN_DEFAULT_TABLE_PERIOD);
 	printf("  MELIAN_TABLE_SELECTS   : semicolon-separated list of table=SELECT ... overrides\n");
 	printf("  MELIAN_TABLE_STRIP_NULL: whether to strip null values in returned payloads (default: %s)\n", MELIAN_DEFAULT_TABLE_STRIP_NULL);

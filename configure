@@ -652,6 +652,8 @@ POSTGRESQL_LIBS
 POSTGRESQL_CFLAGS
 SQLITE_LIBS
 SQLITE_CFLAGS
+IOURING_LIBS
+IOURING_CFLAGS
 LIBEVENT_LIBS
 MYSQL_LIBS
 MYSQL_CFLAGS
@@ -763,6 +765,7 @@ enable_maintainer_mode
 enable_dependency_tracking
 with_mysql
 with_libevent
+with_iouring
 with_sqlite3
 with_postgresql
 with_jansson
@@ -1419,6 +1422,8 @@ Optional Packages:
                           libraries can be found (auto-detect by default)
   --with-libevent=PREFIX  Prefix where libevent headers and libraries can be
                           found
+  --with-iouring=PREFIX   Prefix where liburing headers and libraries can be
+                          found (auto-detect by default)
   --with-sqlite3=PREFIX   Prefix where SQLite3 headers and libraries can be
                           found (auto-detect by default)
   --with-postgresql=PREFIX
@@ -5928,6 +5933,125 @@ fi
 LDFLAGS="$save_LDFLAGS"
 
 
+# Optional io_uring support (Linux only)
+
+# Check whether --with-iouring was given.
+if test ${with_iouring+y}
+then :
+  withval=$with_iouring;
+else case e in #(
+  e) with_iouring=auto ;;
+esac
+fi
+
+
+have_iouring=no
+IOURING_CFLAGS=""
+IOURING_LIBS=""
+
+case $host_os in
+  linux*)
+    if test "x$with_iouring" != "xno"; then
+      case $with_iouring in
+        auto|yes)
+          IOURING_CPPFLAGS_CAND=""
+          IOURING_LDFLAGS_CAND=""
+          ;;
+        *)
+          IOURING_CPPFLAGS_CAND="-I$with_iouring/include"
+          IOURING_LDFLAGS_CAND="-L$with_iouring/lib"
+          ;;
+      esac
+
+      save_CPPFLAGS="$CPPFLAGS"
+      CPPFLAGS="$IOURING_CPPFLAGS_CAND $CPPFLAGS"
+      ac_fn_c_check_header_compile "$LINENO" "liburing.h" "ac_cv_header_liburing_h" "$ac_includes_default"
+if test "x$ac_cv_header_liburing_h" = xyes
+then :
+  have_iouring=yes
+else case e in #(
+  e) have_iouring=no ;;
+esac
+fi
+
+      CPPFLAGS="$save_CPPFLAGS"
+
+      if test "x$have_iouring" = "xyes"; then
+        save_LDFLAGS="$LDFLAGS"
+        LDFLAGS="$IOURING_LDFLAGS_CAND $LDFLAGS"
+        { printf "%s\n" "$as_me:${as_lineno-$LINENO}: checking for io_uring_queue_init in -luring" >&5
+printf %s "checking for io_uring_queue_init in -luring... " >&6; }
+if test ${ac_cv_lib_uring_io_uring_queue_init+y}
+then :
+  printf %s "(cached) " >&6
+else case e in #(
+  e) ac_check_lib_save_LIBS=$LIBS
+LIBS="-luring  $LIBS"
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.
+   The 'extern "C"' is for builds by C++ compilers;
+   although this is not generally supported in C code supporting it here
+   has little cost and some practical benefit (sr 110532).  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char io_uring_queue_init (void);
+int
+main (void)
+{
+return io_uring_queue_init ();
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_link "$LINENO"
+then :
+  ac_cv_lib_uring_io_uring_queue_init=yes
+else case e in #(
+  e) ac_cv_lib_uring_io_uring_queue_init=no ;;
+esac
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.beam \
+    conftest$ac_exeext conftest.$ac_ext
+LIBS=$ac_check_lib_save_LIBS ;;
+esac
+fi
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: result: $ac_cv_lib_uring_io_uring_queue_init" >&5
+printf "%s\n" "$ac_cv_lib_uring_io_uring_queue_init" >&6; }
+if test "x$ac_cv_lib_uring_io_uring_queue_init" = xyes
+then :
+  IOURING_LIBS="$IOURING_LDFLAGS_CAND -luring"
+else case e in #(
+  e) have_iouring=no ;;
+esac
+fi
+
+        LDFLAGS="$save_LDFLAGS"
+      fi
+
+      if test "x$have_iouring" = "xyes"; then
+        IOURING_CFLAGS="$IOURING_CPPFLAGS_CAND"
+
+printf "%s\n" "#define HAVE_IOURING 1" >>confdefs.h
+
+      elif test "x$with_iouring" = "xyes"; then
+        as_fn_error $? "io_uring support requested but liburing.h or liburing not found" "$LINENO" 5
+      fi
+    fi
+    ;;
+  *)
+    if test "x$with_iouring" = "xyes"; then
+      as_fn_error $? "io_uring is only available on Linux" "$LINENO" 5
+    fi
+    ;;
+esac
+
+
+
 # Optional SQLite support (prepare to link when available)
 
 # Check whether --with-sqlite3 was given.
@@ -6161,6 +6285,16 @@ printf "%s\n" "$as_me:   SQLite: $have_sqlite3" >&6;}
 printf "%s\n" "$as_me:   PostgreSQL: $have_postgresql" >&6;}
 { printf "%s\n" "$as_me:${as_lineno-$LINENO}:   Runtime selection: set MELIAN_DB_DRIVER to mysql, sqlite, or postgresql" >&5
 printf "%s\n" "$as_me:   Runtime selection: set MELIAN_DB_DRIVER to mysql, sqlite, or postgresql" >&6;}
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: " >&5
+printf "%s\n" "$as_me: " >&6;}
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}: I/O backend configuration:" >&5
+printf "%s\n" "$as_me: I/O backend configuration:" >&6;}
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}:   libevent: yes (required)" >&5
+printf "%s\n" "$as_me:   libevent: yes (required)" >&6;}
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}:   io_uring: $have_iouring" >&5
+printf "%s\n" "$as_me:   io_uring: $have_iouring" >&6;}
+{ printf "%s\n" "$as_me:${as_lineno-$LINENO}:   Runtime selection: set MELIAN_IO_BACKEND to auto, libevent, or iouring" >&5
+printf "%s\n" "$as_me:   Runtime selection: set MELIAN_IO_BACKEND to auto, libevent, or iouring" >&6;}
 { printf "%s\n" "$as_me:${as_lineno-$LINENO}: " >&5
 printf "%s\n" "$as_me: " >&6;}
 
