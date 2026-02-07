@@ -403,3 +403,42 @@ docker run --rm \
 ```
 
 Clients can then connect to `tcp://localhost:42123`.
+
+## Security
+
+### Unix socket (default)
+
+The default Unix socket is created with mode `0660` (owner + group read/write). Only processes running as the same user or group can connect. No additional configuration is needed.
+
+### Network restrictions (TCP)
+
+When exposing Melian over TCP, bind to a specific interface rather than `0.0.0.0` and use firewall rules to restrict access to trusted hosts:
+
+```bash
+# Bind Melian to an internal interface
+MELIAN_SOCKET_HOST=10.0.1.5 MELIAN_SOCKET_PORT=42123 ./melian-server
+```
+
+```bash
+# Allow only your application subnet, drop everything else
+iptables -A INPUT -p tcp --dport 42123 -s 10.0.1.0/24 -j ACCEPT
+iptables -A INPUT -p tcp --dport 42123 -j DROP
+```
+
+This is handled at the kernel level with zero performance overhead.
+
+### Encryption (TLS via proxy)
+
+Melian does not include built-in TLS. Its performance comes from zero-copy direct I/O on raw sockets. In-process TLS would add a 30-50% throughput penalty (the same cost Redis 6+ pays for native TLS).
+
+For encrypted connections, run a TLS termination proxy in front of Melian. [stunnel](https://www.stunnel.org/), HAProxy, and nginx all work. Example stunnel configuration:
+
+```ini
+[melian]
+accept = 0.0.0.0:42123
+connect = /tmp/melian.sock
+cert = /etc/melian/server.pem
+key = /etc/melian/server.key
+```
+
+Clients connect to `tls://host:42123`; stunnel decrypts and forwards to Melian's Unix socket. For containerized deployments, run the TLS proxy as a sidecar container alongside Melian.
