@@ -2,12 +2,39 @@
 
 Melian has a few secret options used for functionality testing, benchmarks, and performance testing. You can create suitable tables to have those functions working.
 
-## Updating autotools
+## Build system
 
-If you're updating `configure.ac`, regenerate `configure` with:
+The repo ships generated autotools files (`configure`, `Makefile.in`,
+`aclocal.m4`, `build-aux/`) so that end users only need:
+
+```bash
+./configure && make
+```
+
+No autotools installation required.
+
+### Modifying the build system
+
+If you edit `configure.ac` or `Makefile.am`, regenerate the build
+system with:
 
 ```bash
 ./bootstrap
+```
+
+This runs `autoreconf -fi` and requires autoconf and automake to be
+installed. After regenerating, commit the updated generated files
+(`configure`, `Makefile.in`, `aclocal.m4`) along with your changes.
+
+Note: the build uses `AM_MAINTAINER_MODE`, so `make` will never
+automatically re-run autotools. You must run `./bootstrap` explicitly.
+
+Alternatively, pass `--enable-maintainer-mode` to `./configure` and
+`make` will regenerate the build files automatically when it detects
+changes to `configure.ac` or `Makefile.am`.
+
+```bash
+./configure --enable-maintainer-mode
 ```
 
 ## Defining Your Own Tables - MySQL
