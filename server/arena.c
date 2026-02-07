@@ -45,6 +45,9 @@ static void arena_check_and_grow(Arena* arena, unsigned extra) {
 
   unsigned capacity = next_power_of_two(total, arena->capacity);
   uint8_t *buffer = realloc(arena->buffer, capacity);
+  if (!buffer) {
+    LOG_FATAL("Arena realloc failed: need %u bytes (cap %u)", total, capacity);
+  }
   LOG_DEBUG("Arena need %u grow %p %u => %p %u", total, (void*)arena->buffer, arena->capacity, (void*)buffer, capacity);
   arena->buffer = buffer;
   arena->capacity = capacity;
