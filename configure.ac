@@ -5,6 +5,7 @@ AC_INIT([melian],
 AC_CONFIG_SRCDIR([server/melian-server.c])
 AC_CONFIG_AUX_DIR([build-aux])
 AM_INIT_AUTOMAKE([foreign subdir-objects])
+AM_MAINTAINER_MODE
 
 AC_CANONICAL_HOST
 AC_USE_SYSTEM_EXTENSIONS
