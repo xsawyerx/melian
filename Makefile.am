@@ -59,4 +59,37 @@ EXTRA_DIST = \
 	server/data.h \
 	server/db.h \
 	server/cron.h \
-	clients/c/client.h
+	clients/c/client.h \
+	tests/test.h
+
+# --- Test suite ---
+check_PROGRAMS = \
+	tests/test_arena \
+	tests/test_hash \
+	tests/test_util \
+	tests/test_log \
+	tests/test_protocol \
+	tests/test_data
+
+TESTS = $(check_PROGRAMS)
+
+tests_test_arena_SOURCES = tests/test_arena.c server/arena.c server/util.c server/log.c
+tests_test_arena_CFLAGS = $(AM_CFLAGS) -DLOG_LEVEL=0
+
+tests_test_hash_SOURCES = tests/test_hash.c server/hash.c server/xxhash.c server/arena.c server/util.c server/log.c
+tests_test_hash_CFLAGS = $(AM_CFLAGS) -DLOG_LEVEL=0
+
+tests_test_util_SOURCES = tests/test_util.c server/util.c server/log.c
+tests_test_util_CFLAGS = $(AM_CFLAGS) -DLOG_LEVEL=0
+
+tests_test_log_SOURCES = tests/test_log.c server/log.c
+tests_test_log_CFLAGS = $(AM_CFLAGS) -DLOG_LEVEL=0
+
+tests_test_protocol_SOURCES = tests/test_protocol.c
+tests_test_protocol_CFLAGS = $(AM_CFLAGS)
+
+tests_test_data_SOURCES = tests/test_data.c server/data.c server/config.c server/hash.c server/xxhash.c server/arena.c server/util.c server/log.c
+tests_test_data_CFLAGS = $(AM_CFLAGS) -DLOG_LEVEL=0
+tests_test_data_LDADD = $(JANSSON_LIBS)
+
+test: check

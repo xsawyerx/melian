@@ -15,3 +15,14 @@ melian-client
 melian-server
 server/.deps/
 server/.dirstamp
+tests/.deps/
+tests/.dirstamp
+tests/test_arena
+tests/test_hash
+tests/test_util
+tests/test_log
+tests/test_protocol
+tests/test_data
+tests/*.log
+tests/*.trs
+test-suite.log
