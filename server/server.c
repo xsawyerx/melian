@@ -162,7 +162,8 @@ void server_destroy(Server* server) {
     LOG_INFO("Cleared conn free list with %u elements", size);
   }
 
-  if (server->listener) evconnlistener_free(server->listener);
+  if (server->listener_unix) evconnlistener_free(server->listener_unix);
+  if (server->listener_tcp) evconnlistener_free(server->listener_tcp);
   if (server->cron) cron_destroy(server->cron);
   if (server->data) data_destroy(server->data);
   if (server->db) db_destroy(server->db);
@@ -180,6 +181,9 @@ unsigned server_initial_load(Server* server) {
 }
 
 unsigned server_listen(Server* server) {
+  unsigned listeners = 0;
+
+  // Try Unix socket if path is set
   const char* path = server->config->socket.path;
   if (path && path[0]) {
     unlink(path);
@@ -191,15 +195,16 @@ unsigned server_listen(Server* server) {
       errno = ENOMEM;
       LOG_FATAL("UNIX socket path '%s' exceeds %zu bytes", path, sizeof(sun.sun_path) - 1);
     }
-    server->listener = evconnlistener_new_bind(server->base, on_accept, server,
-                                               LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE, -1,
-                                               (struct sockaddr*)&sun, sizeof(sun));
+    server->listener_unix = evconnlistener_new_bind(server->base, on_accept, server,
+                                                    LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE, -1,
+                                                    (struct sockaddr*)&sun, sizeof(sun));
     mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP; // 0660
     chmod(path, mode);
     LOG_INFO("Listening on UNIX socket [%s]", path);
-    return 1;
+    ++listeners;
   }
 
+  // Try TCP socket if port is set
   const char* host = server->config->socket.host;
   unsigned port = server->config->socket.port;
   if (host && host[0] && port) {
@@ -209,13 +214,13 @@ unsigned server_listen(Server* server) {
     sin.sin_port = htons(port);
     inet_pton(AF_INET, host, &sin.sin_addr);
     unsigned flags = LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE | LEV_OPT_REUSEABLE_PORT;
-    server->listener = evconnlistener_new_bind(server->base, on_accept, server, flags, -1,
-                                               (struct sockaddr*)&sin, sizeof(sin));
+    server->listener_tcp = evconnlistener_new_bind(server->base, on_accept, server, flags, -1,
+                                                   (struct sockaddr*)&sin, sizeof(sin));
     LOG_INFO("Listening on TCP socket [%s:%u]", host, port);
-    return 1;
+    ++listeners;
   }
 
-  return 0;
+  return listeners;
 }
 
 unsigned server_run(Server* server) {

@@ -44,6 +44,8 @@ struct ConfigFileOverrides {
   char* db_user;
   char* db_password;
   char* sqlite_filename;
+  char* socket_host;
+  char* socket_port;
   char* socket_path;
   char* table_period;
   char* table_selects;
@@ -134,9 +136,10 @@ void config_show_usage(void) {
 	printf("  MELIAN_DB_USER         : database user name (default: %s)\n", MELIAN_DEFAULT_DB_USER);
 	printf("  MELIAN_DB_PASSWORD     : database user password (default: %s)\n", MELIAN_DEFAULT_DB_PASSWORD);
 	printf("  MELIAN_SQLITE_FILENAME : SQLite database filename (default: %s)\n", MELIAN_DEFAULT_SQLITE_FILENAME);
-	printf("  MELIAN_SOCKET_HOST     : host name where server will listen for TCP connections (default: %s)\n", MELIAN_DEFAULT_SOCKET_HOST);
-	printf("  MELIAN_SOCKET_PORT     : port where server will listen for TCP connections -- 0 to disable (default: %s)\n", MELIAN_DEFAULT_SOCKET_PORT);
-	printf("  MELIAN_SOCKET_PATH     : name of UNIX socket file to create -- empty to disable (default: %s)\n", MELIAN_DEFAULT_SOCKET_PATH);
+	printf("  MELIAN_SOCKET_HOST     : host for TCP listener (default: %s)\n", MELIAN_DEFAULT_SOCKET_HOST);
+	printf("  MELIAN_SOCKET_PORT     : port for TCP listener -- 0 to disable (default: %s)\n", MELIAN_DEFAULT_SOCKET_PORT);
+	printf("  MELIAN_SOCKET_PATH     : UNIX socket path -- empty to disable (default: %s)\n", MELIAN_DEFAULT_SOCKET_PATH);
+	printf("  Both UNIX and TCP listeners can be active simultaneously.\n");
 	printf("  MELIAN_SERVER_TOKENS   : whether to advertise server version in status (default: %s)\n", MELIAN_DEFAULT_SERVER_TOKENS);
 	printf("  MELIAN_TABLE_PERIOD    : how often (seconds) to refresh the data by default (default: %s)\n", MELIAN_DEFAULT_TABLE_PERIOD);
 	printf("  MELIAN_TABLE_SELECTS   : semicolon-separated list of table=SELECT ... overrides\n");
@@ -578,6 +581,22 @@ static unsigned parse_config_file_defaults(const char* json) {
     if (json_is_string(path)) {
       set_override_string(&config_file_overrides.socket_path, json_string_value(path));
     }
+    json_t* sock_host = json_object_get(socket, "host");
+    if (json_is_string(sock_host)) {
+      set_override_string(&config_file_overrides.socket_host, json_string_value(sock_host));
+    }
+    json_t* sock_port = json_object_get(socket, "port");
+    if (json_is_integer(sock_port)) {
+      char tmp[32];
+      int wrote = snprintf(tmp, sizeof(tmp), "%lld", (long long)json_integer_value(sock_port));
+      if (wrote < 0 || (size_t)wrote >= sizeof(tmp)) {
+        errno = ENOMEM;
+        LOG_FATAL("Socket port value from config file exceeds %zu bytes", sizeof(tmp) - 1);
+      }
+      set_override_string(&config_file_overrides.socket_port, tmp);
+    } else if (json_is_string(sock_port)) {
+      set_override_string(&config_file_overrides.socket_port, json_string_value(sock_port));
+    }
   }
 
   json_t* table = json_object_get(root, "table");
@@ -633,6 +652,8 @@ static void clear_config_file_overrides(void) {
   set_override_owned(&config_file_overrides.db_user, NULL);
   set_override_owned(&config_file_overrides.db_password, NULL);
   set_override_owned(&config_file_overrides.sqlite_filename, NULL);
+  set_override_owned(&config_file_overrides.socket_host, NULL);
+  set_override_owned(&config_file_overrides.socket_port, NULL);
   set_override_owned(&config_file_overrides.socket_path, NULL);
   set_override_owned(&config_file_overrides.table_period, NULL);
   set_override_owned(&config_file_overrides.table_selects, NULL);
@@ -649,6 +670,8 @@ static const char* config_file_default_for(const char* name) {
   if (strcmp(name, "MELIAN_DB_USER") == 0) return config_file_overrides.db_user;
   if (strcmp(name, "MELIAN_DB_PASSWORD") == 0) return config_file_overrides.db_password;
   if (strcmp(name, "MELIAN_SQLITE_FILENAME") == 0) return config_file_overrides.sqlite_filename;
+  if (strcmp(name, "MELIAN_SOCKET_HOST") == 0) return config_file_overrides.socket_host;
+  if (strcmp(name, "MELIAN_SOCKET_PORT") == 0) return config_file_overrides.socket_port;
   if (strcmp(name, "MELIAN_SOCKET_PATH") == 0) return config_file_overrides.socket_path;
   if (strcmp(name, "MELIAN_TABLE_PERIOD") == 0) return config_file_overrides.table_period;
   if (strcmp(name, "MELIAN_TABLE_SELECTS") == 0) return config_file_overrides.table_selects;
