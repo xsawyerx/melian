@@ -149,11 +149,14 @@ The configure step fails explicitly if the required headers/libraries cannot be 
 1. Start the server
 
 ```bash
-# Run listening on a UNIX socket
-$ MELIAN_SOCKET_PATH=/tmp/melian.sock ./melian-server
+# Run listening on a UNIX socket (default)
+$ ./melian-server
 
-# Run listening on a TCP socket
-$ MELIAN_SOCKET_HOST=localhost MELIAN_SOCKET_PORT=9999 ./melian-server
+# Run listening on a TCP socket only
+$ MELIAN_SOCKET_PATH= MELIAN_SOCKET_PORT=9999 ./melian-server
+
+# Run listening on both UNIX and TCP simultaneously
+$ MELIAN_SOCKET_PORT=9999 ./melian-server
 
 # Display server options
 $ ./melian-server --help
@@ -172,7 +175,7 @@ Set the database driver explicitly and adjust shared settings via config file or
         "driver": "sqlite",
         "name": "melian",
         "host": "localhost",
-        "port": 9000,
+        "port": 42123,
         "username": "melian",
         "password": "melian",
         "sqlite": {
@@ -180,7 +183,9 @@ Set the database driver explicitly and adjust shared settings via config file or
         }
     },
     "socket": {
-        "path": "/tmp/melian.sock"
+        "path": "/tmp/melian.sock",
+        "host": "127.0.0.1",
+        "port": 42123
     },
     "table": {
         "period": 60,
@@ -250,7 +255,11 @@ These will override any values in the config file.
 * `MELIAN_DB_USER` (config: `database.username`): username (default `melian`)
 * `MELIAN_DB_PASSWORD` (config: `database.password`): password (default `meliansecret`)
 * `MELIAN_SQLITE_FILENAME` (config: `database.sqlite.filename`): SQLite database filename (default `/etc/melian.db`)
-* `MELIAN_SOCKET_PATH` (config: `socket.path`): `/tmp/melian.sock` (set to an empty string to disable the UNIX socket and enable TCP)
+* `MELIAN_SOCKET_HOST` (config: `socket.host`): TCP bind address (default `127.0.0.1`)
+* `MELIAN_SOCKET_PORT` (config: `socket.port`): TCP port -- `0` to disable (default `0`)
+* `MELIAN_SOCKET_PATH` (config: `socket.path`): UNIX socket path -- empty to disable (default `/tmp/melian.sock`)
+
+Both UNIX and TCP listeners can be active simultaneously. By default only the UNIX socket is enabled. Set `MELIAN_SOCKET_PORT` to a non-zero value to also enable TCP.
 * `MELIAN_SERVER_TOKENS` (config: `server.tokens`): whether to advertise the server version in status JSON (default `true`)
 * `MELIAN_TABLE_PERIOD` (config: `table.period`): `60` seconds (reload interval)
 * `MELIAN_TABLE_SELECTS` (config: `table.selects`): semicolon-separated overrides (`table=SELECT ...;table2=SELECT ...`) to customize per-table SELECT statements
@@ -281,9 +290,9 @@ Ths describes the test client we have in C.
 # Connect to a UNIX socket
 $ ./melian-client -u /tmp/melian.sock
 
-# Connect to a TCP socket (ensure the UNIX socket is disabled)
-$ MELIAN_SOCKET_PATH= MELIAN_SOCKET_HOST=127.0.0.1 MELIAN_SOCKET_PORT=8765 ./melian-server
-$ ./melian-client -p 8765
+# Connect to a TCP socket (start server with TCP enabled)
+$ MELIAN_SOCKET_PORT=42123 ./melian-server
+$ ./melian-client -p 42123
 
 # Display client options
 $ ./melian-client -?
@@ -367,9 +376,22 @@ docker run --rm \
 
 The server listens on `/run/melian/melian.sock` inside the container. On the host you’ll find the mirrored socket at `./socket/melian.sock`.
 
+### Both UNIX and TCP
+
+Enable both listeners by setting a port while keeping the default socket path:
+
+```bash
+docker run --rm \
+  -v $(pwd)/socket:/run/melian \
+  -e MELIAN_SOCKET_HOST=0.0.0.0 \
+  -e MELIAN_SOCKET_PORT=42123 \
+  -p 42123:42123 \
+  melian:latest
+```
+
 ### TCP only (disable UNIX socket)
 
-To accept TCP connections and skip the UNIX socket, unset `MELIAN_SOCKET_PATH` and map the port:
+To accept only TCP connections, unset `MELIAN_SOCKET_PATH` and map the port:
 
 ```bash
 docker run --rm \

@@ -7,7 +7,8 @@ struct conn_state_t;
 // A running server.
 typedef struct Server {
   struct event_base *base;
-  struct evconnlistener *listener;
+  struct evconnlistener *listener_unix;
+  struct evconnlistener *listener_tcp;
   struct event *tev;
   struct event *sev;
   struct Config* config;

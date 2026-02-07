@@ -3,7 +3,7 @@
         "driver": "sqlite",
         "name": "melian",
         "host": "localhost",
-        "port": 9000,
+        "port": 42123,
         "username": "melian",
         "password": "melian",
         "sqlite": {
